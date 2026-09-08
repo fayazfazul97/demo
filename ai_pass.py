@@ -1,5 +1,5 @@
 """
-AI pass: Claude reads the whole backlog once and proposes tags.
+AI pass: the AI model reads the whole backlog once and proposes tags.
 
 It does NOT score. It proposes clusters, severity, confidence, classification,
 what each proactive item would structurally retire, and flags contradictions.
@@ -147,19 +147,20 @@ def backlog_as_text(df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def prompt_hash(df: pd.DataFrame, model: str) -> str:
+def prompt_hash(df: pd.DataFrame, model: str, system_prompt: str | None = None) -> str:
     h = hashlib.sha256()
-    h.update(SYSTEM_PROMPT.encode())
+    h.update((system_prompt or SYSTEM_PROMPT).encode())
     h.update(json.dumps(TOOL_SCHEMA, sort_keys=True).encode())
     h.update(backlog_as_text(df).encode())
     h.update(model.encode())
     return h.hexdigest()[:12]
 
 
-def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL) -> dict:
-    """Call Claude with a forced tool so the output is schema-valid JSON."""
+def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, system_prompt: str | None = None) -> dict:
+    """Call the model with a forced tool so the output is schema-valid JSON."""
     import anthropic  # imported here so the app runs without the SDK installed
 
+    system_prompt = system_prompt or SYSTEM_PROMPT
     client = anthropic.Anthropic(api_key=api_key)
     user_msg = (
         backlog_as_text(df)
@@ -169,7 +170,7 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL) -> d
     resp = client.messages.create(
         model=model,
         max_tokens=8000,
-        system=SYSTEM_PROMPT,
+        system=system_prompt,
         tools=[TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": TOOL_NAME},
         messages=[{"role": "user", "content": user_msg}],
@@ -181,7 +182,8 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL) -> d
         "source": "api",
         "model": model,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "prompt_hash": prompt_hash(df, model),
+        "prompt_hash": prompt_hash(df, model, system_prompt),
+        "system_prompt": system_prompt,
         "usage": {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens},
         "result": payload,
     }
@@ -219,13 +221,13 @@ def save_cache(blob: dict, path: Path | None = None) -> None:
     path.write_text(json.dumps(blob, indent=2), encoding="utf-8")
 
 
-def load_cache(df: pd.DataFrame | None = None, model: str = DEFAULT_MODEL) -> dict | None:
+def load_cache(df: pd.DataFrame | None = None, model: str = DEFAULT_MODEL, system_prompt: str | None = None) -> dict | None:
     """
     Return the cached proposal for THIS dataset: the hash-named file if it
     exists, otherwise the bundled default only if it covers the same tickets.
     """
     if df is not None:
-        hashed = cache_path_for(prompt_hash(df, model))
+        hashed = cache_path_for(prompt_hash(df, model, system_prompt))
         if hashed.exists():
             return json.loads(hashed.read_text(encoding="utf-8"))
     if not CACHE_PATH.exists():

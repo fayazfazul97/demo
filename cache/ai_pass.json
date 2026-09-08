@@ -3,13 +3,51 @@
   "model": "seed: tags drafted by Claude in a chat session on 2026-09-08 using the same prompt definitions. Replace by running the AI pass with an API key.",
   "generated_at": "2026-09-08T00:00:00+00:00",
   "prompt_hash": "seed",
-  "usage": {"input_tokens": 0, "output_tokens": 0},
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
   "result": {
+    "accounts": [
+      {
+        "source_account": "Meridian Foods",
+        "tier": "top",
+        "evidence": "'top-5 account by GMV' (TRQ-1042, TRQ-1054, TRQ-1066)"
+      },
+      {
+        "source_account": "Palisade Resorts Group",
+        "tier": "enterprise",
+        "evidence": "'enterprise tier, high visibility' (TRQ-1046), 'Enterprise tier' (TRQ-1052)"
+      },
+      {
+        "source_account": "Northwind Distributors",
+        "tier": "mid",
+        "evidence": "'mid-market, moderate GMV but high complaint volume' (TRQ-1043)"
+      },
+      {
+        "source_account": "Cobalt Hospitality",
+        "tier": "mid",
+        "evidence": "'mid-size but growing fast' (TRQ-1044), 'Cobalt tier: mid-size' (TRQ-1050)"
+      },
+      {
+        "source_account": "Oakmere Culinary Supply",
+        "tier": "small",
+        "evidence": "'small regional account, low GMV' (TRQ-1047)"
+      },
+      {
+        "source_account": "Internal",
+        "tier": "internal",
+        "evidence": "source_account is Internal; all are proactive proposals"
+      }
+    ],
     "clusters": [
       {
         "cluster_id": "lead_time_logic",
         "label": "Multi-supplier lead-time consolidation picks the wrong supplier",
-        "ticket_ids": ["TRQ-1046", "TRQ-1060"],
+        "ticket_ids": [
+          "TRQ-1046",
+          "TRQ-1060"
+        ],
         "root_cause_hypothesis": "Standing-order scheduler resolves lead time across suppliers with the wrong aggregate (shortest instead of longest), so orders land late for one account and early for another.",
         "evidence": "TRQ-1046 notes 'not picking the longest lead-time item correctly when an order spans multiple suppliers'; TRQ-1060 notes 'shortest lead time across suppliers instead of the longest' and explicitly calls it the inverse of TRQ-1046.",
         "effort_bucket": "1-2 sprints",
@@ -18,7 +56,10 @@
       {
         "cluster_id": "silent_scheduler",
         "label": "Standing-order scheduler fails silently with no alerting",
-        "ticket_ids": ["TRQ-1053", "TRQ-1068"],
+        "ticket_ids": [
+          "TRQ-1053",
+          "TRQ-1068"
+        ],
         "root_cause_hypothesis": "Scheduler task can fail without raising an error or notification; TRQ-1053 is confirmed, TRQ-1068 has the same signature. Immediate fix is alerting on scheduler failures; the scheduler root cause is a second, separate item.",
         "evidence": "TRQ-1053: 'scheduler task that silently failed with no alerting'; TRQ-1068: 'skip a scheduled week entirely with no failure notification' and notes 'similar signature to TRQ-1053'.",
         "effort_bucket": "small",
@@ -27,7 +68,11 @@
       {
         "cluster_id": "tag_mapping",
         "label": "Catalog tag / commodity-code mismatches across accounts",
-        "ticket_ids": ["TRQ-1044", "TRQ-1052", "TRQ-1066"],
+        "ticket_ids": [
+          "TRQ-1044",
+          "TRQ-1052",
+          "TRQ-1066"
+        ],
         "root_cause_hypothesis": "Supplier catalog tags drift from operator commodity codes, especially after catalog migrations and on seasonal SKUs. Not one bug; one recurring data-quality pattern with the same fix path (bulk re-tag now, self-serve tooling later).",
         "evidence": "TRQ-1044 (40+ SKUs, reorder suggestions wrong), TRQ-1052 (seasonal produce, 'possibly a systemic tagging issue'), TRQ-1066 (~200 SKUs after supplier migration). TRQ-1063 notes the pattern is 'seen across nearly every account this quarter'.",
         "effort_bucket": "1-2 sprints",
@@ -36,7 +81,10 @@
       {
         "cluster_id": "erp_duplicate_orders",
         "label": "ERP timeout + retry creates duplicate orders",
-        "ticket_ids": ["TRQ-1043", "TRQ-1054"],
+        "ticket_ids": [
+          "TRQ-1043",
+          "TRQ-1054"
+        ],
         "root_cause_hypothesis": "When a customer ERP times out, Trellis (or the ERP) retries and the order is submitted twice. Likely fix is idempotency keys on order submission, which covers both accounts regardless of whose retry fires.",
         "evidence": "TRQ-1043: 'retry logic firing when Northwind's ERP times out'; TRQ-1054: 'SAP integration is timing out intermittently, causing orders to be submitted twice'. Both are duplicate-order-on-timeout.",
         "effort_bucket": "1-2 sprints",
@@ -45,7 +93,10 @@
       {
         "cluster_id": "ratelimit_config",
         "label": "Trellis-side rate-limit configuration gaps",
-        "ticket_ids": ["TRQ-1049", "TRQ-1062"],
+        "ticket_ids": [
+          "TRQ-1049",
+          "TRQ-1062"
+        ],
         "root_cause_hypothesis": "Both are our own rate-limit settings (a month-end limit and an allowlist). No code change; configuration work that should be owned by support or infra with a same-week SLA.",
         "evidence": "TRQ-1049: 'looks like our own rate-limit config, not their retry behavior'; TRQ-1062: 'Configuration gap, not a bug'.",
         "effort_bucket": "small",
@@ -54,7 +105,10 @@
       {
         "cluster_id": "inventory_sync",
         "label": "Inventory status shown to buyers does not match availability",
-        "ticket_ids": ["TRQ-1047", "TRQ-1058"],
+        "ticket_ids": [
+          "TRQ-1047",
+          "TRQ-1058"
+        ],
         "root_cause_hypothesis": "Inventory sync lag or flakiness lets out-of-stock or backordered items show as in stock. Two accounts of very different size report it, which supports the 'broader sync-flakiness pattern' guess in TRQ-1047. Cause is unknown; needs a discovery spike before an effort estimate is credible.",
         "evidence": "TRQ-1047: 'inventory status shown to their buyers doesn't match what's actually available'; TRQ-1058: 'seeing in stock items that are actually backordered'.",
         "effort_bucket": "unclear",
@@ -62,33 +116,365 @@
       }
     ],
     "tickets": [
-      {"request_id": "TRQ-1042", "classification": "reactive", "cluster_id": "", "severity": "high", "confidence": 0.7, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "Top-5 account, 15% of orders failing, blocks POs before month-end close. Correlates with SKUs from the last sync and our last release, so likely a field-mapping regression that is small to fix once isolated.", "ambiguity_note": "Effort hint is 'unclear'; tagged small on the strength of the regression signal. If the mapping is not the cause, re-estimate."},
-      {"request_id": "TRQ-1043", "classification": "reactive", "cluster_id": "erp_duplicate_orders", "severity": "high", "confidence": 0.6, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Third occurrence this quarter, causes double shipments and manual credit memos. Shares the timeout-retry mechanism with TRQ-1054.", "ambiguity_note": "Root cause is 'suspected', not confirmed. Notes attribute retry to Northwind's ERP; TRQ-1054 suggests Trellis-side too."},
-      {"request_id": "TRQ-1044", "classification": "reactive", "cluster_id": "tag_mapping", "severity": "high", "confidence": 0.5, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "Email tone is low urgency but the notes tie reorder accuracy to a churn-risk signal on a fast-growing account. Judged on the churn signal, not the tone.", "ambiguity_note": "Severity is inferred from the CS churn flag, which is a month old and not quantified."},
-      {"request_id": "TRQ-1045", "classification": "proactive", "cluster_id": "", "severity": "medium", "confidence": 0.5, "effort_bucket": "large", "redirect": false, "metric_linked": true, "retires": [], "reason": "Self-service punchout setup wizard. Named metric (12% self-configure vs 40% target). Large, multi-quarter, no advocate. Would reduce setup tickets, but none of the punchout tickets in this backlog are setup problems; they are runtime bugs, so it retires nothing here.", "ambiguity_note": "The notes claim long-term ticket reduction, but the current backlog does not contain the ticket type it would prevent."},
-      {"request_id": "TRQ-1046", "classification": "reactive", "cluster_id": "lead_time_logic", "severity": "high", "confidence": 0.75, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Enterprise account, missed delivery windows for events, exec on the thread. Same logic bug as TRQ-1060.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1047", "classification": "reactive", "cluster_id": "inventory_sync", "severity": "medium", "confidence": 0.45, "effort_bucket": "unclear", "redirect": false, "metric_linked": false, "retires": [], "reason": "Small account on its own, but the notes ask whether this is a broader sync pattern and TRQ-1058 says yes.", "ambiguity_note": "Would be a decline as a singleton; it matters only because Palisade reports the same symptom."},
-      {"request_id": "TRQ-1048", "classification": "reactive", "cluster_id": "", "severity": "medium", "confidence": 0.8, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "Bulk CSV upload as a punchout fallback. Framed as not urgent, but requested informally twice before by other large accounts, and it is small.", "ambiguity_note": "'Other large accounts' are not named; breadth is asserted, not evidenced in the backlog."},
-      {"request_id": "TRQ-1049", "classification": "reactive", "cluster_id": "ratelimit_config", "severity": "high", "confidence": 0.95, "effort_bucket": "small", "redirect": true, "metric_linked": false, "retires": [], "reason": "Our own rate-limit config is backing up their month-end orders and their ops manager is threatening VP escalation. This is a config change, not product work; redirect to support/infra today.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1050", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.7, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "Subject says URGENT; analytics say under 2% of orders. Scored on the analytics.", "ambiguity_note": "Field ops use iPads on the floor, so the 2% may understate lost orders that never got placed. Reviewer call."},
-      {"request_id": "TRQ-1051", "classification": "proactive", "cluster_id": "", "severity": "low", "confidence": 0.4, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": true, "retires": [], "reason": "Expansion-revenue dashboard. Metric-linked but Sales has never formalised the ask and nothing in the backlog depends on it.", "ambiguity_note": "If Sales formalises the request with a target, re-score."},
-      {"request_id": "TRQ-1052", "classification": "reactive", "cluster_id": "tag_mapping", "severity": "medium", "confidence": 0.5, "effort_bucket": "unclear", "redirect": false, "metric_linked": false, "retires": [], "reason": "Enterprise account, second tag complaint in 60 days, possibly systemic across seasonal SKUs.", "ambiguity_note": "Unknown whether the seasonal-SKU problem is account-specific or platform-wide; the cluster assumes platform-wide."},
-      {"request_id": "TRQ-1053", "classification": "reactive", "cluster_id": "silent_scheduler", "severity": "medium", "confidence": 0.6, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "Small account, but the confirmed cause is a scheduler failing with no alerting, which the notes say could hit other accounts silently. TRQ-1068 suggests it already has.", "ambiguity_note": "Effort hint says 'investigate monitoring gap separately'; the cluster treats alerting as the deliverable and the scheduler root cause as follow-on."},
-      {"request_id": "TRQ-1054", "classification": "reactive", "cluster_id": "erp_duplicate_orders", "severity": "high", "confidence": 0.6, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Top-5 account, weekly duplicate orders, open informally for weeks, IT lead wants a permanent fix. Same mechanism as TRQ-1043.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1055", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.7, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Bulk-edit standing-order quantities. Mentioned in passing, framed as nice-to-have, 1-2 sprints.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1056", "classification": "reactive", "cluster_id": "", "severity": "medium", "confidence": 0.3, "effort_bucket": "unclear", "redirect": false, "metric_linked": false, "retires": [], "reason": "Orders above a dollar threshold rejected with a generic error. Ownership is unknown (Cobalt approval rule vs Trellis validation). Needs a joint troubleshooting spike before anyone can size it.", "ambiguity_note": "May not be a Trellis bug at all. Spike should establish ownership first."},
-      {"request_id": "TRQ-1057", "classification": "proactive", "cluster_id": "", "severity": "high", "confidence": 0.6, "effort_bucket": "large", "redirect": false, "metric_linked": true, "retires": ["TRQ-1053", "TRQ-1068"], "reason": "Standing-order health score. Retention metric is down ~4pts over two quarters, which is the only declining company metric in the backlog. Failure-rate monitoring would surface silent scheduler failures like TRQ-1053/1068 before accounts do.", "ambiguity_note": "It detects TRQ-1053/1068 rather than fixing them; reviewer may want to drop those from 'retires'. Summary says 'pilot' but the effort hint says large multi-quarter; a pilot scoped to 1-2 sprints would score very differently."},
-      {"request_id": "TRQ-1058", "classification": "reactive", "cluster_id": "inventory_sync", "severity": "high", "confidence": 0.45, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Enterprise, event-driven ordering, exec sponsor has raised it twice. Same symptom as TRQ-1047 on a small account, so probably systemic.", "ambiguity_note": "Effort hint is 1-2 sprints but no cause is identified; the cluster overrides to 'unclear' and asks for a spike first."},
-      {"request_id": "TRQ-1059", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.4, "effort_bucket": "small", "redirect": true, "metric_linked": false, "retires": [], "reason": "Conflicting units of measure on one item code, likely supplier-side data entry. Route to support to correct with the supplier; not a platform change.", "ambiguity_note": "Notes admit it is 'hard to tell without digging in'. If it turns out to be a platform issue it belongs in the tag_mapping cluster."},
-      {"request_id": "TRQ-1060", "classification": "reactive", "cluster_id": "lead_time_logic", "severity": "medium", "confidence": 0.75, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Top-5 account, early arrivals causing dock conflicts. Inverse symptom of TRQ-1046, same fix.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1061", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.6, "effort_bucket": "small", "redirect": false, "metric_linked": false, "retires": [], "reason": "$0.00 line items at checkout look bad, but logs show a handful of transactions a week. Reported urgency does not match measured impact.", "ambiguity_note": "Visible pricing errors carry reputational cost the transaction count does not capture. Reviewer may raise to medium."},
-      {"request_id": "TRQ-1062", "classification": "reactive", "cluster_id": "ratelimit_config", "severity": "medium", "confidence": 0.95, "effort_bucket": "small", "redirect": true, "metric_linked": false, "retires": [], "reason": "Add the new ERP's IP range to the allowlist. Config change that has sat for three weeks. Redirect and set an SLA so this stops reaching the product backlog.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1063", "classification": "proactive", "cluster_id": "", "severity": "high", "confidence": 0.7, "effort_bucket": "large", "redirect": false, "metric_linked": false, "retires": ["TRQ-1044", "TRQ-1052", "TRQ-1066", "TRQ-1059"], "reason": "Self-serve tag-mapping tool. Directly retires the tag_mapping cluster, which is the most widespread reactive pattern in the backlog (four accounts). Structural fix instead of one-off cleanups.", "ambiguity_note": "No company metric is named in the notes. TRQ-1044 links tag accuracy to a churn-risk signal, so a reviewer could reasonably set metric_linked to true. TRQ-1059 is only retired if it is a platform issue, not supplier data entry."},
-      {"request_id": "TRQ-1064", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.8, "effort_bucket": "1-2 sprints", "redirect": false, "metric_linked": false, "retires": [], "reason": "Hold-for-approval state above a dollar threshold. Reasonable, moderate complexity, 'not blocking anything yet' per their own finance contact.", "ambiguity_note": "Overlaps conceptually with TRQ-1056 (dollar-threshold behaviour on Cobalt). Worth checking if one design covers both."},
-      {"request_id": "TRQ-1065", "classification": "reactive", "cluster_id": "", "severity": "low", "confidence": 0.3, "effort_bucket": "unclear", "redirect": false, "metric_linked": false, "retires": [], "reason": "Blank page after punchout checkout, sporadic, hard to reproduce, small account. Ask support to collect session logs; no roadmap capacity until it reproduces.", "ambiguity_note": "Could be a session-timeout edge case that also affects larger accounts; there is no evidence of that in the backlog yet."},
-      {"request_id": "TRQ-1066", "classification": "reactive", "cluster_id": "tag_mapping", "severity": "medium", "confidence": 0.5, "effort_bucket": "1-2 sprints", "redirect": true, "metric_linked": false, "retires": [], "reason": "Top-5 account, ~200 SKUs mis-mapped after a supplier migration. The notes call it a one-time cleanup; run it as a data job now rather than building a bulk re-tag tool for one event. The tool ask is what TRQ-1063 is for.", "ambiguity_note": "Counted in the tag_mapping cluster for impact, but the work itself is data cleanup, not engineering."},
-      {"request_id": "TRQ-1067", "classification": "proactive", "cluster_id": "", "severity": "low", "confidence": 0.8, "effort_bucket": "small", "redirect": true, "metric_linked": false, "retires": [], "reason": "Quarterly reactive-vs-proactive audit. A PM process change with no engineering cost. Do it, but it does not consume roadmap capacity.", "ambiguity_note": ""},
-      {"request_id": "TRQ-1068", "classification": "reactive", "cluster_id": "silent_scheduler", "severity": "high", "confidence": 0.6, "effort_bucket": "unclear", "redirect": false, "metric_linked": false, "retires": [], "reason": "Skipped weeks with no notification, then double-ups, on a growing mid-market account. Same signature as TRQ-1053, which had a confirmed silent scheduler failure.", "ambiguity_note": "Root cause not confirmed for this account; 'same root cause' is inferred from the symptom pattern."}
+      {
+        "request_id": "TRQ-1042",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "high",
+        "confidence": 0.7,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Top-5 account, 15% of orders failing, blocks POs before month-end close. Correlates with SKUs from the last sync and our last release, so likely a field-mapping regression that is small to fix once isolated.",
+        "ambiguity_note": "Effort hint is 'unclear'; tagged small on the strength of the regression signal. If the mapping is not the cause, re-estimate."
+      },
+      {
+        "request_id": "TRQ-1043",
+        "classification": "reactive",
+        "cluster_id": "erp_duplicate_orders",
+        "severity": "high",
+        "confidence": 0.6,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Third occurrence this quarter, causes double shipments and manual credit memos. Shares the timeout-retry mechanism with TRQ-1054.",
+        "ambiguity_note": "Root cause is 'suspected', not confirmed. Notes attribute retry to Northwind's ERP; TRQ-1054 suggests Trellis-side too."
+      },
+      {
+        "request_id": "TRQ-1044",
+        "classification": "reactive",
+        "cluster_id": "tag_mapping",
+        "severity": "high",
+        "confidence": 0.5,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Email tone is low urgency but the notes tie reorder accuracy to a churn-risk signal on a fast-growing account. Judged on the churn signal, not the tone.",
+        "ambiguity_note": "Severity is inferred from the CS churn flag, which is a month old and not quantified."
+      },
+      {
+        "request_id": "TRQ-1045",
+        "classification": "proactive",
+        "cluster_id": "",
+        "severity": "medium",
+        "confidence": 0.5,
+        "effort_bucket": "large",
+        "redirect": false,
+        "metric_linked": true,
+        "retires": [],
+        "reason": "Self-service punchout setup wizard. Named metric (12% self-configure vs 40% target). Large, multi-quarter, no advocate. Would reduce setup tickets, but none of the punchout tickets in this backlog are setup problems; they are runtime bugs, so it retires nothing here.",
+        "ambiguity_note": "The notes claim long-term ticket reduction, but the current backlog does not contain the ticket type it would prevent."
+      },
+      {
+        "request_id": "TRQ-1046",
+        "classification": "reactive",
+        "cluster_id": "lead_time_logic",
+        "severity": "high",
+        "confidence": 0.75,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Enterprise account, missed delivery windows for events, exec on the thread. Same logic bug as TRQ-1060.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1047",
+        "classification": "reactive",
+        "cluster_id": "inventory_sync",
+        "severity": "medium",
+        "confidence": 0.45,
+        "effort_bucket": "unclear",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Small account on its own, but the notes ask whether this is a broader sync pattern and TRQ-1058 says yes.",
+        "ambiguity_note": "Would be a decline as a singleton; it matters only because Palisade reports the same symptom."
+      },
+      {
+        "request_id": "TRQ-1048",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "medium",
+        "confidence": 0.8,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Bulk CSV upload as a punchout fallback. Framed as not urgent, but requested informally twice before by other large accounts, and it is small.",
+        "ambiguity_note": "'Other large accounts' are not named; breadth is asserted, not evidenced in the backlog."
+      },
+      {
+        "request_id": "TRQ-1049",
+        "classification": "reactive",
+        "cluster_id": "ratelimit_config",
+        "severity": "high",
+        "confidence": 0.95,
+        "effort_bucket": "small",
+        "redirect": true,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Our own rate-limit config is backing up their month-end orders and their ops manager is threatening VP escalation. This is a config change, not product work; redirect to support/infra today.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1050",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.7,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Subject says URGENT; analytics say under 2% of orders. Scored on the analytics.",
+        "ambiguity_note": "Field ops use iPads on the floor, so the 2% may understate lost orders that never got placed. Reviewer call."
+      },
+      {
+        "request_id": "TRQ-1051",
+        "classification": "proactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.4,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": true,
+        "retires": [],
+        "reason": "Expansion-revenue dashboard. Metric-linked but Sales has never formalised the ask and nothing in the backlog depends on it.",
+        "ambiguity_note": "If Sales formalises the request with a target, re-score."
+      },
+      {
+        "request_id": "TRQ-1052",
+        "classification": "reactive",
+        "cluster_id": "tag_mapping",
+        "severity": "medium",
+        "confidence": 0.5,
+        "effort_bucket": "unclear",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Enterprise account, second tag complaint in 60 days, possibly systemic across seasonal SKUs.",
+        "ambiguity_note": "Unknown whether the seasonal-SKU problem is account-specific or platform-wide; the cluster assumes platform-wide."
+      },
+      {
+        "request_id": "TRQ-1053",
+        "classification": "reactive",
+        "cluster_id": "silent_scheduler",
+        "severity": "medium",
+        "confidence": 0.6,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Small account, but the confirmed cause is a scheduler failing with no alerting, which the notes say could hit other accounts silently. TRQ-1068 suggests it already has.",
+        "ambiguity_note": "Effort hint says 'investigate monitoring gap separately'; the cluster treats alerting as the deliverable and the scheduler root cause as follow-on."
+      },
+      {
+        "request_id": "TRQ-1054",
+        "classification": "reactive",
+        "cluster_id": "erp_duplicate_orders",
+        "severity": "high",
+        "confidence": 0.6,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Top-5 account, weekly duplicate orders, open informally for weeks, IT lead wants a permanent fix. Same mechanism as TRQ-1043.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1055",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.7,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Bulk-edit standing-order quantities. Mentioned in passing, framed as nice-to-have, 1-2 sprints.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1056",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "medium",
+        "confidence": 0.3,
+        "effort_bucket": "unclear",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Orders above a dollar threshold rejected with a generic error. Ownership is unknown (Cobalt approval rule vs Trellis validation). Needs a joint troubleshooting spike before anyone can size it.",
+        "ambiguity_note": "May not be a Trellis bug at all. Spike should establish ownership first."
+      },
+      {
+        "request_id": "TRQ-1057",
+        "classification": "proactive",
+        "cluster_id": "",
+        "severity": "high",
+        "confidence": 0.6,
+        "effort_bucket": "large",
+        "redirect": false,
+        "metric_linked": true,
+        "retires": [
+          "TRQ-1053",
+          "TRQ-1068"
+        ],
+        "reason": "Standing-order health score. Retention metric is down ~4pts over two quarters, which is the only declining company metric in the backlog. Failure-rate monitoring would surface silent scheduler failures like TRQ-1053/1068 before accounts do.",
+        "ambiguity_note": "It detects TRQ-1053/1068 rather than fixing them; reviewer may want to drop those from 'retires'. Summary says 'pilot' but the effort hint says large multi-quarter; a pilot scoped to 1-2 sprints would score very differently."
+      },
+      {
+        "request_id": "TRQ-1058",
+        "classification": "reactive",
+        "cluster_id": "inventory_sync",
+        "severity": "high",
+        "confidence": 0.45,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Enterprise, event-driven ordering, exec sponsor has raised it twice. Same symptom as TRQ-1047 on a small account, so probably systemic.",
+        "ambiguity_note": "Effort hint is 1-2 sprints but no cause is identified; the cluster overrides to 'unclear' and asks for a spike first."
+      },
+      {
+        "request_id": "TRQ-1059",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.4,
+        "effort_bucket": "small",
+        "redirect": true,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Conflicting units of measure on one item code, likely supplier-side data entry. Route to support to correct with the supplier; not a platform change.",
+        "ambiguity_note": "Notes admit it is 'hard to tell without digging in'. If it turns out to be a platform issue it belongs in the tag_mapping cluster."
+      },
+      {
+        "request_id": "TRQ-1060",
+        "classification": "reactive",
+        "cluster_id": "lead_time_logic",
+        "severity": "medium",
+        "confidence": 0.75,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Top-5 account, early arrivals causing dock conflicts. Inverse symptom of TRQ-1046, same fix.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1061",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.6,
+        "effort_bucket": "small",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "$0.00 line items at checkout look bad, but logs show a handful of transactions a week. Reported urgency does not match measured impact.",
+        "ambiguity_note": "Visible pricing errors carry reputational cost the transaction count does not capture. Reviewer may raise to medium."
+      },
+      {
+        "request_id": "TRQ-1062",
+        "classification": "reactive",
+        "cluster_id": "ratelimit_config",
+        "severity": "medium",
+        "confidence": 0.95,
+        "effort_bucket": "small",
+        "redirect": true,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Add the new ERP's IP range to the allowlist. Config change that has sat for three weeks. Redirect and set an SLA so this stops reaching the product backlog.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1063",
+        "classification": "proactive",
+        "cluster_id": "",
+        "severity": "high",
+        "confidence": 0.7,
+        "effort_bucket": "large",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [
+          "TRQ-1044",
+          "TRQ-1052",
+          "TRQ-1066",
+          "TRQ-1059"
+        ],
+        "reason": "Self-serve tag-mapping tool. Directly retires the tag_mapping cluster, which is the most widespread reactive pattern in the backlog (four accounts). Structural fix instead of one-off cleanups.",
+        "ambiguity_note": "No company metric is named in the notes. TRQ-1044 links tag accuracy to a churn-risk signal, so a reviewer could reasonably set metric_linked to true. TRQ-1059 is only retired if it is a platform issue, not supplier data entry."
+      },
+      {
+        "request_id": "TRQ-1064",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.8,
+        "effort_bucket": "1-2 sprints",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Hold-for-approval state above a dollar threshold. Reasonable, moderate complexity, 'not blocking anything yet' per their own finance contact.",
+        "ambiguity_note": "Overlaps conceptually with TRQ-1056 (dollar-threshold behaviour on Cobalt). Worth checking if one design covers both."
+      },
+      {
+        "request_id": "TRQ-1065",
+        "classification": "reactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.3,
+        "effort_bucket": "unclear",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Blank page after punchout checkout, sporadic, hard to reproduce, small account. Ask support to collect session logs; no roadmap capacity until it reproduces.",
+        "ambiguity_note": "Could be a session-timeout edge case that also affects larger accounts; there is no evidence of that in the backlog yet."
+      },
+      {
+        "request_id": "TRQ-1066",
+        "classification": "reactive",
+        "cluster_id": "tag_mapping",
+        "severity": "medium",
+        "confidence": 0.5,
+        "effort_bucket": "1-2 sprints",
+        "redirect": true,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Top-5 account, ~200 SKUs mis-mapped after a supplier migration. The notes call it a one-time cleanup; run it as a data job now rather than building a bulk re-tag tool for one event. The tool ask is what TRQ-1063 is for.",
+        "ambiguity_note": "Counted in the tag_mapping cluster for impact, but the work itself is data cleanup, not engineering."
+      },
+      {
+        "request_id": "TRQ-1067",
+        "classification": "proactive",
+        "cluster_id": "",
+        "severity": "low",
+        "confidence": 0.8,
+        "effort_bucket": "small",
+        "redirect": true,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Quarterly reactive-vs-proactive audit. A PM process change with no engineering cost. Do it, but it does not consume roadmap capacity.",
+        "ambiguity_note": ""
+      },
+      {
+        "request_id": "TRQ-1068",
+        "classification": "reactive",
+        "cluster_id": "silent_scheduler",
+        "severity": "high",
+        "confidence": 0.6,
+        "effort_bucket": "unclear",
+        "redirect": false,
+        "metric_linked": false,
+        "retires": [],
+        "reason": "Skipped weeks with no notification, then double-ups, on a growing mid-market account. Same signature as TRQ-1053, which had a confirmed silent scheduler failure.",
+        "ambiguity_note": "Root cause not confirmed for this account; 'same root cause' is inferred from the symptom pattern."
+      }
     ],
     "cross_record_observations": [
       "27 tickets reduce to roughly 8 root causes plus a handful of singletons. TRQ-1046 and TRQ-1060 are one lead-time bug; TRQ-1053 and TRQ-1068 are one silent-failure pattern; TRQ-1043 and TRQ-1054 are one duplicate-order mechanism.",

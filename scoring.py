@@ -48,11 +48,11 @@ SEVERITIES = ["low", "medium", "high"]
 CLASSIFICATIONS = ["reactive", "proactive"]
 BUCKET_ORDER = ["Do now", "Investigate first", "Later", "Not this quarter", "Hand off"]
 BUCKET_HELP = {
-    "Do now": "Scores above the funding line and fits in this quarter's capacity.",
-    "Investigate first": "We do not know the cause yet, but it matters enough to spend a little time finding out before estimating.",
-    "Later": "Close to the line. Revisit if capacity frees up or the facts change.",
-    "Not this quarter": "Scores well below the line. Say no for now and tell the account why.",
-    "Hand off": "Not engineering work: a config change, a data cleanup, or a process. Route it to whoever owns that.",
+    "Do now": "Scores at or above the priority threshold and fits within this quarter's capacity.",
+    "Investigate first": "Effort is unclear and confidence is low, but the impact justifies a short, time-boxed investigation before estimating.",
+    "Later": "Close to the threshold. Deferred; revisit if capacity frees up or the facts change.",
+    "Not this quarter": "Scores well below the threshold. Declined for this cycle, with the reason communicated to the account.",
+    "Hand off": "Not engineering work: a configuration change, a data cleanup, or a process. Reassigned to the owning team.",
 }
 
 

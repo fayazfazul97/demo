@@ -68,6 +68,11 @@ def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, con
         lines.append("**Proactive work:** none clears the current priority threshold. "
                      f"Every proactive item scored below {config['do_now_threshold']:g}. Before accepting that, check the 'eliminates' list and the effort on each one.")
     lines.append("")
+    pulled = scored[scored["capacity_note"].astype(str).str.startswith("pulled up")]
+    if len(pulled):
+        items = "; ".join(f"{r['request_id']} ({r['classification']}, score {r['score']}, {_pts(r['cost_points'])})" for _, r in pulled.iterrows())
+        lines.append(f"**Filled from lower categories:** {len(pulled)} item(s) scored below the threshold but were pulled into 'Do now' because capacity was available: {items}. "
+                     "They are funded on spare capacity, not on merit against the threshold; if capacity tightens they are the first to drop.")
     if len(later):
         top = later.sort_values("score", ascending=False).iloc[0]
         fits = "would fit within the unallocated points" if top["cost_points"] <= split["headroom_points"] else "would not fit within the unallocated points"
@@ -138,6 +143,9 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         "- The split is measured in points of effort (Do now plus Investigate first), not in ticket counts. Handed-off items are excluded because configuration, cleanup and process work do not consume engineering capacity, "
         "on the assumption that support, infrastructure or the PM group take them on.",
         f"- The priority threshold ({config['do_now_threshold']:g}) is a chosen value, not derived from the data. The sensitivity note in the rationale shows the effect of moving it.",
+        {"later": "- Spare capacity is filled from 'Later' with the best-scoring items that fit, so the quarter is fully allocated. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
+         "later_and_declined": "- Spare capacity is filled from 'Later' and 'Not this quarter' with the best-scoring items that fit. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
+         "off": "- Spare capacity is left unallocated; nothing below the threshold is funded."}[config.get("fill_spare_capacity", "later")],
         "",
         "**About the AI pass**",
         "- The AI model reads the text and proposes tags. It does not score. Its reading can vary between runs, so each run is saved and reused.",

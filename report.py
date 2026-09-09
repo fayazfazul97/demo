@@ -15,7 +15,7 @@ def _pts(n: float) -> str:
 
 def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, config: dict,
                   tickets: pd.DataFrame | None = None, cluster_df: pd.DataFrame | None = None) -> str:
-    """Why the split is what it is, built from what is actually in each pile."""
+    """Rationale for the split, built from what is actually in each category."""
     do = scored[scored["bucket"] == "Do now"]
     inv = scored[scored["bucket"] == "Investigate first"]
     later = scored[scored["bucket"] == "Later"]
@@ -32,52 +32,52 @@ def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, con
             seen.add(key)
             if r["cluster_id"]:
                 ids = ", ".join(sub[sub["cluster_id"] == r["cluster_id"]]["request_id"])
-                out.append(f"one fix for {ids} ({_pts(r['cost_points'])}, score {r['score']})")
+                out.append(f"one fix covering {ids} ({_pts(r['cost_points'])}, score {r['score']})")
             else:
                 out.append(f"{r['request_id']} ({_pts(r['cost_points'])}, score {r['score']})")
         return out
 
     n_fixes = len(fixes(do_r))
     lines = [
-        f"**We recommend spending {split['reactive_pct']}% of next quarter on customer requests and "
-        f"{split['proactive_pct']}% on our own initiatives.** "
-        f"That is {_pts(split['reactive_points'])} on requests and {_pts(split['proactive_points'])} on initiatives, "
-        f"{_pts(split['committed_points'])} in total, out of {_pts(split['capacity_points'])} the team can do. "
-        f"{_pts(split['headroom_points'])} left unallocated.",
+        f"**Recommended allocation for next quarter: {split['reactive_pct']}% reactive (customer requests), "
+        f"{split['proactive_pct']}% proactive (team initiatives).** "
+        f"That is {_pts(split['reactive_points'])} of reactive work and {_pts(split['proactive_points'])} of proactive work, "
+        f"{_pts(split['committed_points'])} in total, against a capacity of {_pts(split['capacity_points'])}. "
+        f"{_pts(split['headroom_points'])} remain unallocated.",
         "",
-        f"If you just counted tickets, {split['reactive_in_backlog_pct']}% of the backlog is customer requests. "
-        "The recommendation is lower than that for two reasons: we measure the split by how much work each item is, not how many tickets there are, "
-        "and requests that share the same root cause are fixed once and paid for once.",
+        f"By ticket count, {split['reactive_in_backlog_pct']}% of the backlog is reactive. "
+        "The recommendation differs from that figure for two reasons: the split is measured by the effort of each item, not by ticket count, "
+        "and reactive tickets that share a root cause are fixed once and costed once.",
         "",
-        f"**Customer requests we would do now ({len(do_r)} tickets, {n_fixes} pieces of work):** " + ("; ".join(fixes(do_r)) or "none") + ".",
+        f"**Reactive work prioritised ({len(do_r)} tickets, {n_fixes} fixes):** " + ("; ".join(fixes(do_r)) or "none") + ".",
     ]
     if len(inv):
-        lines.append(f"We would also spend {_pts(inv['cost_share'].sum())} finding out what is behind {', '.join(inv['request_id'])}. "
-                     "These matter enough to look into, but nobody knows the cause yet, so estimating them now would be a guess.")
+        lines.append(f"A further {_pts(inv['cost_share'].sum())} are allocated to investigating {', '.join(inv['request_id'])}. "
+                     "These have enough impact to warrant a look, but the cause is not yet known, so an estimate now would be a guess.")
     lines.append("")
     if len(do_p):
         bits = []
         for _, r in do_p.iterrows():
             ret = [x for x in r["retires"] if x] if isinstance(r["retires"], list) else []
-            why = f"it would make {len(ret)} of the requests above go away for good ({', '.join(ret)})" if ret else "it stands on its own metric case"
+            why = f"it would eliminate {len(ret)} of the reactive tickets above ({', '.join(ret)})" if ret else "it is justified on its metric case alone"
             bits.append(f"{r['request_id']} ({_pts(r['cost_points'])}, score {r['score']}): {why}")
-        lines.append(f"**Our own initiatives we would do now ({len(do_p)}):** " + "; ".join(bits) + ".")
-        lines.append("An initiative earns its place by removing future requests. One that removes a whole group of requests is scored on all of them together, "
-                     "which is how it can beat a single loud request.")
+        lines.append(f"**Proactive work prioritised ({len(do_p)}):** " + "; ".join(bits) + ".")
+        lines.append("A proactive item earns its place by eliminating future reactive work. One that eliminates a whole cluster is scored on the combined impact of that cluster, "
+                     "which is how it can outrank a single loud request.")
     else:
-        lines.append("**Our own initiatives:** none make the cut at the current funding line. "
-                     f"Every initiative scored below {config['do_now_threshold']:g}. Before accepting that, check the 'makes go away' list and the work size on each one.")
+        lines.append("**Proactive work:** none clears the current priority threshold. "
+                     f"Every proactive item scored below {config['do_now_threshold']:g}. Before accepting that, check the 'eliminates' list and the effort on each one.")
     lines.append("")
     if len(later):
         top = later.sort_values("score", ascending=False).iloc[0]
-        fits = "would fit in the unallocated points" if top["cost_points"] <= split["headroom_points"] else "would not fit in the unallocated points"
-        kind = "initiative" if top["classification"] == "proactive" else "request"
-        lines.append(f"**First in line if something changes:** {top['request_id']} (an {kind}, score {top['score']}, {_pts(top['cost_points'])}) is the best of the 'Later' pile and {fits}. "
-                     "If its work size or how sure we are turns out to be wrong, it is the first thing that moves.")
+        fits = "would fit within the unallocated points" if top["cost_points"] <= split["headroom_points"] else "would not fit within the unallocated points"
+        kind = "proactive item" if top["classification"] == "proactive" else "reactive ticket"
+        lines.append(f"**Next in line:** {top['request_id']} (a {kind}, score {top['score']}, {_pts(top['cost_points'])}) is the highest-scoring item in 'Later' and {fits}. "
+                     "If its effort or confidence is revised, it is the first item to move.")
     if len(handoff):
-        lines.append(f"**Handed off, not counted:** {len(handoff)} items ({', '.join(handoff['request_id'])}) are config changes, data cleanups or process work. "
-                     "They should get done, some this week, but by support, infra or the PM group, not from engineering time. "
-                     "Leaving them in the product backlog is part of why the request share looks so large.")
+        lines.append(f"**Handed off, excluded from capacity:** {len(handoff)} items ({', '.join(handoff['request_id'])}) are configuration changes, data cleanups or process work. "
+                     "They should be completed, some within the week, but by support, infrastructure or the PM group rather than from engineering capacity. "
+                     "Leaving them in the product backlog inflates the apparent reactive share.")
     if len(do_p) and tickets is not None and cluster_df is not None:
         low = float(do_p["score"].min())
         alt = dict(config); alt["do_now_threshold"] = round(low + 0.01, 2)
@@ -85,9 +85,9 @@ def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, con
             alt_scored, _ = score_backlog(tickets, cluster_df, alt)
             alt_split = capacity_split(alt_scored, alt)
             lines.append("")
-            lines.append(f"**How solid is this?** If the funding line moved from {config['do_now_threshold']:g} to {alt['do_now_threshold']:g}, "
-                         f"the lowest-scoring initiative would drop out and the split would become {alt_split['reactive_pct']}/{alt_split['proactive_pct']}. "
-                         "The initiative share depends on where that line sits. Anyone who disagrees can move it in the settings and see the result.")
+            lines.append(f"**Sensitivity:** if the priority threshold moved from {config['do_now_threshold']:g} to {alt['do_now_threshold']:g}, "
+                         f"the lowest-scoring proactive item would drop out and the split would become {alt_split['reactive_pct']}/{alt_split['proactive_pct']}. "
+                         "The proactive share depends on where that threshold sits. The setting can be adjusted in the sidebar to test alternatives.")
         except Exception:
             pass
     return "\n".join(lines)
@@ -105,45 +105,45 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
     unclear = scored[scored["eff_effort_bucket"] == "unclear"]["request_id"].tolist()
     flagged = scored[scored["ambiguity_note"].fillna("").astype(str).str.strip() != ""]["request_id"].tolist() if "ambiguity_note" in scored else []
     pro = scored[scored["classification"] == "proactive"]
-    retire_note = "; ".join(f"{r['request_id']} removes {', '.join(r['retires']) or 'nothing'}" for _, r in pro.iterrows())
+    retire_note = "; ".join(f"{r['request_id']} eliminates {', '.join(r['retires']) or 'nothing'}" for _, r in pro.iterrows())
 
     lines = [
         "**About the accounts**",
-        "- The data does not say how much revenue each account is worth. The AI model reads size clues in the notes (\"top-5 by GMV\", \"enterprise\", \"small regional\") "
-        "and suggests an importance weight from 1 to 5. Weights in use: " + ", ".join(f"{k} {v:g}" for k, v in sorted(aw.items())) + ".",
-        (f"- The reviewer changed the suggested weight for: {', '.join(changed_w)}." if changed_w else "- All weights are the model's suggestions; the reviewer has not changed any."),
-        (f"- No size clue was found for {', '.join(unknown_tier)}, so they were given the middle weight (3)." if unknown_tier else "- Every account had a size clue in the notes."),
+        "- The data does not state each account's revenue. The AI model reads size indicators in the notes (\"top-5 by GMV\", \"enterprise\", \"small regional\") "
+        "and proposes an account size from 1 to 5. Sizes in use: " + ", ".join(f"{k} {v:g}" for k, v in sorted(aw.items())) + ".",
+        (f"- The reviewer changed the proposed account size for: {', '.join(changed_w)}." if changed_w else "- All account sizes are the model's proposals; the reviewer has not changed any."),
+        (f"- No size indicator was found for {', '.join(unknown_tier)}, so they were assigned the middle size (3)." if unknown_tier else "- Every account had a size indicator in the notes."),
         "",
         "**About the tickets**",
-        "- How serious a ticket is comes from the numbers and facts in the notes, not from how urgent the email sounds. Where the two disagree the notes win"
-        + (f"; {len(flagged)} tickets carry a note about something the reviewer had to judge: {', '.join(flagged)}." if flagged else "."),
-        f"- Work size turns into points: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. "
-        f"When nobody knows the size, we do not guess; we spend {ep['unclear']:g} point finding out, if the ticket matters enough"
-        + (f". Unknown size right now: {', '.join(unclear)}." if unclear else "."),
-        "- \"Next quarter\" means the quarter after the latest date in the file.",
+        "- Severity is based on the figures and facts in the notes, not on the urgency of the tone. Where the two disagree, the notes prevail"
+        + (f"; {len(flagged)} tickets carry a note flagging a judgement for the reviewer: {', '.join(flagged)}." if flagged else "."),
+        f"- Effort turns into points: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. "
+        f"When effort is unclear it is not estimated; {ep['unclear']:g} point is allocated to a time-boxed investigation, provided the impact justifies it"
+        + (f". Effort unclear right now: {', '.join(unclear)}." if unclear else "."),
+        "- \"Next quarter\" refers to the quarter following the latest date_received in the file.",
         "",
-        "**About the groups (tickets that share one fix)**",
-        "- A group is a guess that several tickets have the same cause and would be fixed together, so the work is counted once. Engineering has not confirmed any of them. "
-        "If a group is wrong, we have given one fix too much credit and under-counted the work.",
-        (f"- Groups we are less than 60% sure about: {', '.join(low_conf)}." if low_conf else "- We are at least 60% sure about every group."),
+        "**About the clusters (tickets that share one root cause)**",
+        "- A cluster is a hypothesis that several tickets share one root cause and one fix, so the effort is counted once. Engineering has not confirmed any of them. "
+        "If a cluster is wrong, one fix has been over-credited and the effort under-counted.",
+        (f"- Clusters with confidence below 0.6, to be treated as hypotheses: {', '.join(low_conf)}." if low_conf else "- Every cluster has confidence of 0.6 or above."),
         "",
-        "**About our own initiatives**",
-        "- An initiative only gets credit for requests in this backlog that it would stop from happening again. Spotting a problem sooner is not the same as fixing it. "
-        "Where the model suggested a spot-it-sooner link, the ticket's note says so and the reviewer decides.",
+        "**About proactive items**",
+        "- A proactive item is credited only for reactive tickets in this backlog that it would eliminate or stop from recurring. Detecting a problem sooner is not the same as fixing it. "
+        "Where the model proposed a detection-only link, the ticket's note says so and the reviewer decides.",
         f"- Current links: {retire_note or 'none'}.",
-        f"- Initiatives tied to a measurable company goal get a {config['metric_bonus']:g}x bonus. A useful initiative with no named goal gets no bonus.",
+        f"- Proactive items linked to a named company metric receive a {config['metric_bonus']:g}x bonus. A useful item with no named metric receives no bonus.",
         "",
         "**About capacity and the split**",
-        f"- The team can do {config['quarter_capacity_points']:g} points this quarter. The default assumes five people, six two-week sprints, and about five points a sprint after support work. The data does not say how big the team is.",
-        "- The split is measured in points of work (Do now plus Investigate first), not in ticket counts. Handed-off items are left out because config, cleanup and process work do not use engineering time, "
-        "assuming support, infra or the PM group actually pick them up.",
-        f"- The funding line ({config['do_now_threshold']:g}) is a chosen number, not something the data tells us. The 'How solid is this?' note above shows what moving it does.",
+        f"- Team capacity is {config['quarter_capacity_points']:g} points this quarter. The default assumes five people, six two-week sprints, and roughly five points per sprint after support load. The data does not state team size.",
+        "- The split is measured in points of effort (Do now plus Investigate first), not in ticket counts. Handed-off items are excluded because configuration, cleanup and process work do not consume engineering capacity, "
+        "on the assumption that support, infrastructure or the PM group take them on.",
+        f"- The priority threshold ({config['do_now_threshold']:g}) is a chosen value, not derived from the data. The sensitivity note in the rationale shows the effect of moving it.",
         "",
         "**About the AI pass**",
-        "- The AI model reads the text and suggests tags. It does not score anything. Its reading can differ between runs, so each run is saved and reused.",
+        "- The AI model reads the text and proposes tags. It does not score. Its reading can vary between runs, so each run is saved and reused.",
         (f"- This proposal: {meta.get('source')}, model {meta.get('model')}, generated {meta.get('generated_at')}." if meta else "- No proposal loaded."),
-        (f"- The reviewer changed {len(diff)} field(s) on {diff['request_id'].nunique()} ticket(s). See 'What you changed'." if len(diff)
-         else "- The reviewer has not changed any suggested tag yet. Everything in use is the model's reading."),
+        (f"- The reviewer changed {len(diff)} field(s) on {diff['request_id'].nunique()} ticket(s). See 'Changes from the model'." if len(diff)
+         else "- The reviewer has not changed any proposed tag. Every tag in use is the model's reading."),
     ]
     return "\n".join(lines)
 
@@ -152,21 +152,21 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     accounts = (ai_meta or {}).get("result", {}).get("accounts") if ai_meta else None
     lines = [
-        "# Backlog scoring: customer requests vs our own initiatives",
+        "# Backlog scoring: reactive vs proactive work",
         f"Generated {now}.",
         "",
-        "## Recommended split",
+        "## Recommended allocation",
         explain_split(scored, clusters, split, config, tickets, cluster_df),
         "",
-        "## What we assumed",
+        "## Assumptions",
         list_assumptions(scored, clusters, config, accounts, ai_meta, diff),
         "",
         "## How the score works",
-        "score = how much it matters x how sure we are / how much work it is.",
-        "How much it matters = account weight (1 to 5) x how serious (low 1, medium 2, high 3). "
-        "Tickets that share one fix are scored together: their 'matters' points are added up, the work is counted once, and every ticket in the group gets the group's score.",
-        "Our own initiatives get their own 'matters' points plus the points of every request they would make go away, times a bonus if tied to a measurable company goal.",
-        "Piles: " + " ".join(f"{b}: {BUCKET_HELP[b]}" for b in BUCKET_ORDER),
+        "score = impact x confidence / effort.",
+        "Impact = account size (1 to 5) x severity (low 1, medium 2, high 3). "
+        "Tickets that share one root cause are scored as a cluster: their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score.",
+        "Proactive items receive their own impact plus the impact of every reactive ticket they would eliminate, multiplied by a bonus if linked to a company metric.",
+        "Categories: " + " ".join(f"{b}: {BUCKET_HELP[b]}" for b in BUCKET_ORDER),
         "",
         "## Settings used",
     ]
@@ -179,21 +179,21 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
             continue
         lines.append(f"## {bucket} ({len(sub)})")
         for _, r in sub.iterrows():
-            grp = f" [group: {r['cluster_id']}]" if r.get("cluster_id") else ""
+            grp = f" [cluster: {r['cluster_id']}]" if r.get("cluster_id") else ""
             note = f" ({r['capacity_note']})" if r.get("capacity_note") else ""
             lines.append(f"- {r['request_id']}{grp} {r['source_account']} | {r['classification']} | score {r['score']} | {r['cost_share']} pts{note}: {r.get('reason', '')}")
         lines.append("")
-    lines.append("## Groups")
+    lines.append("## Clusters")
     for _, c in clusters[~clusters["key"].str.startswith("single:")].iterrows():
-        lines.append(f"- {c['key']}: {c['label']} ({c['tickets']}); work {c['effort_bucket']}, sure {c['confidence']}, matters {c['cluster_impact']}, score {c['score']}")
+        lines.append(f"- {c['key']}: {c['label']} ({c['tickets']}); effort {c['effort_bucket']}, confidence {c['confidence']}, impact {c['cluster_impact']}, score {c['score']}")
     lines.append("")
     if observations:
-        lines.append("## What the AI model noticed across tickets")
+        lines.append("## Cross-ticket observations from the model")
         lines.extend(f"- {o}" for o in observations)
         lines.append("")
-    lines.append("## What the reviewer changed")
+    lines.append("## Changes from the model")
     if diff.empty:
-        lines.append("Nothing changed from the AI proposal.")
+        lines.append("No changes from the model's proposals.")
     else:
         lines.append(f"{len(diff)} field(s) on {diff['request_id'].nunique()} ticket(s).")
         for _, d in diff.iterrows():

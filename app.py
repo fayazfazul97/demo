@@ -1,5 +1,5 @@
 """
-Backlog scorer: customer requests vs our own initiatives.
+Backlog scorer: reactive vs proactive work.
 
 Flow: load the backlog -> the AI model reads it and suggests tags ->
 a person reviews and adjusts -> the maths runs -> download the results.
@@ -105,7 +105,7 @@ def reset_backlog_state() -> None:
 with st.sidebar:
     st.header("Status")
     st.write(f"File: {ss.backlog_name or 'none loaded'}")
-    st.write("AI proposal: " + ("loaded" if ss.ai_blob is not None else "not yet"))
+    st.write("AI analysis: " + ("loaded" if ss.ai_blob is not None else "not yet"))
     st.write("Review: " + ("finalised" if ss.finalized else "open"))
 
     st.divider()
@@ -126,19 +126,19 @@ with st.sidebar:
 
     st.divider()
     st.header("Settings")
-    st.caption("Plain numbers behind the score. Change one and the results update. Account weights are edited in step 3.")
+    st.caption("The parameters behind the score. Change one and the results update. Account size is edited in step 3.")
     cfg = ss.config
-    cfg["do_now_threshold"] = st.slider("Funding line (score needed for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
+    cfg["do_now_threshold"] = st.slider("Priority threshold (score required for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
     cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (points)", 1, 200, int(cfg["quarter_capacity_points"]))
-    cfg["metric_bonus"] = st.slider("Bonus for initiatives tied to a company goal", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
+    cfg["metric_bonus"] = st.slider("Bonus for proactive items linked to a company metric", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
     with st.expander("More settings"):
-        cfg["defer_ratio"] = st.slider("'Later' if score is at least this share of the line", 0.1, 1.0, float(cfg["defer_ratio"]), 0.05)
-        cfg["discovery_confidence_max"] = st.slider("'Investigate first' when how-sure is below", 0.0, 1.0, float(cfg["discovery_confidence_max"]), 0.05)
-        cfg["discovery_min_impact"] = st.slider("...and 'matters' is at least", 0.0, 20.0, float(cfg["discovery_min_impact"]), 0.5)
-        st.markdown("**Points for how serious**")
+        cfg["defer_ratio"] = st.slider("'Later' band (share of the threshold)", 0.1, 1.0, float(cfg["defer_ratio"]), 0.05)
+        cfg["discovery_confidence_max"] = st.slider("'Investigate first' when confidence is below", 0.0, 1.0, float(cfg["discovery_confidence_max"]), 0.05)
+        cfg["discovery_min_impact"] = st.slider("...and impact is at least", 0.0, 20.0, float(cfg["discovery_min_impact"]), 0.5)
+        st.markdown("**Severity points**")
         for sv in SEVERITIES:
             cfg["severity_scale"][sv] = st.number_input(sv, 0.5, 10.0, float(cfg["severity_scale"][sv]), 0.5, key=f"sv_{sv}")
-        st.markdown("**Points for how much work**")
+        st.markdown("**Effort points**")
         for eb in EFFORT_BUCKETS:
             label = {"unclear": "unclear (cost of finding out)"}.get(eb, eb)
             cfg["effort_points"][eb] = st.number_input(label, 0.5, 20.0, float(cfg["effort_points"][eb]), 0.5, key=f"ep_{eb}")
@@ -161,59 +161,59 @@ config = merged_config(ss.config)
 # Title and how it works
 # --------------------------------------------------------------------------- #
 st.title("Backlog scorer")
-st.markdown("Reads a backlog of requests and ideas, scores each one, and recommends how much of next quarter should go to "
-            "customer requests versus the team's own initiatives.")
+st.markdown("Reads a backlog of inbound requests and internal proposals, scores each item, and recommends how much of next quarter "
+            "should go to reactive work (customer requests) versus proactive work (team initiatives).")
 
 with st.container(border=True):
     st.markdown("""
-**How it works, in four steps**
+**How this works**
 
-1. **Load the backlog.** Upload the CSV or use the bundled one.
-2. **Let the AI model read it.** It reads every ticket together and suggests: which tickets share one fix, how serious each is, how sure we are about the cause, how much work it is, how important each account is, and which initiatives would make requests go away. It does not score anything.
-3. **Review and adjust.** You are the judge. Change any suggestion you disagree with and say why. Add groups the model missed. Adjust the settings on the left.
-4. **See the results and download.** The maths runs on your final tags. You get the split, the reasoning, the assumptions, and a log of everything you changed.
+1. **Load the backlog.** Upload the CSV or use the bundled sample.
+2. **AI analysis.** The model reads every ticket together and proposes: which tickets share one root cause, the severity of each, our confidence in the cause, the effort involved, each account's size, and which proactive items would eliminate existing requests. It does not score anything.
+3. **Review and adjust.** You make the final call. Change any proposal you disagree with and record why. Add clusters the model missed. Adjust the settings on the left.
+4. **Results and export.** The scoring runs on your final tags. You get the recommended split, the rationale, the assumptions, and a log of every change you made.
 
-**Please review before you trust the output.** The model's suggestions are a reading of free text and can be wrong: it can group tickets that are different bugs, rate a ticket on the tone of the email instead of the numbers, misjudge an account's size, or credit an initiative with fixing something it would only detect. The recommendation is arithmetic on those tags. It is only as good as the review in step 3.
+**Please review before relying on the output.** The model's proposals are an interpretation of free text and can be wrong: it can cluster tickets that are different bugs, set severity from the tone of an email instead of the figures, misjudge an account's size, or credit a proactive item with resolving something it would only detect. The recommendation is arithmetic on those tags. It is only as sound as the review in step 3.
 """)
 
-with st.expander("How the score works (plain version)"):
+with st.expander("How the score works"):
     c = config
     st.markdown(f"""
-Every ticket gets one number, its score. Higher means fund it sooner.
+Every ticket receives a single score. Higher means higher priority.
 
-**score = how much it matters × how sure we are ÷ how much work it is**
+**score = impact × confidence ÷ effort**
 
-- **How much it matters** = the account's importance (1 to 5, suggested by the model, editable in step 3) × how serious the problem is (low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}).
-- **How sure we are** is 0 to 1: do we know the cause and the fix?
-- **How much work** is in points: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. "Unclear" is not guessed; it costs {c["effort_points"]["unclear"]:g} point to find out.
+- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity (low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}).
+- **Confidence** is 0 to 1: how well do we know the cause and the fix?
+- **Effort** is in points: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. "Unclear" is not guessed; it costs {c["effort_points"]["unclear"]:g} point to find out.
 
-**Tickets that share one fix are scored as a group.** Their "matters" points are added up, the work is counted once, and every ticket in the group gets the group's score. This is why grouping matters: one fix that closes three tickets is worth three tickets.
+**Tickets that share one root cause are scored as a cluster.** Their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score. This is why clustering matters: one fix that closes three tickets is worth three tickets.
 
-**Our own initiatives** get their own "matters" points, plus the points of every request they would make go away for good, times a {c["metric_bonus"]:g}× bonus if they are tied to a measurable company goal. That is how a structural fix can beat a single loud request.
+**Proactive items** receive their own impact, plus the impact of every reactive ticket they would eliminate, multiplied by a {c["metric_bonus"]:g}× bonus if they are linked to a company metric. That is how a structural fix can outrank a single loud request.
 
-**Then every ticket lands in one of five piles, checked in this order:**
+**Each ticket is then assigned to one of five categories, checked in this order:**
 
-1. **Hand off.** Not engineering work (config, data cleanup, process). Goes to whoever owns that. Not counted.
-2. **Investigate first.** Cause unknown, how-sure below {c["discovery_confidence_max"]:g}, and it matters at least {c["discovery_min_impact"]:g}. Spend a little time finding out.
-3. **Do now.** Score of {c["do_now_threshold"]:g} or more (the funding line).
-4. **Later.** Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more.
-5. **Not this quarter.** Everything else.
+1. **Hand off.** Not engineering work (configuration, data cleanup, process). Reassigned to the owning team. Excluded from capacity.
+2. **Investigate first.** Effort unclear, confidence below {c["discovery_confidence_max"]:g}, and impact at least {c["discovery_min_impact"]:g}. A short, time-boxed investigation before estimating.
+3. **Do now.** Score of {c["do_now_threshold"]:g} or more (the priority threshold).
+4. **Later.** Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more; deferred, revisited if capacity allows.
+5. **Not this quarter.** Everything else; declined for this cycle.
 
-Then we fill the quarter: "Do now" items are taken best-first until {c["quarter_capacity_points"]:g} points are used. Anything that does not fit moves to "Later".
+Capacity is then allocated: "Do now" items are taken in score order until {c["quarter_capacity_points"]:g} points are used. Anything that does not fit moves to "Later".
 
-**The split** is the share of those points going to customer requests versus our own initiatives. Handed-off work is left out because it does not use engineering time.
+**The split** is the share of allocated points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
-| Account weight | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
-| Funding line | Sidebar | {c["do_now_threshold"]:g} | Lower it and more gets funded, usually more initiatives. |
-| Team capacity | Sidebar | {c["quarter_capacity_points"]:g} | How many points fit. |
-| Bonus for a company goal | Sidebar | {c["metric_bonus"]:g} | Set to 1 to remove the initiative advantage. |
-| 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the line still counts as "Later" rather than "Not this quarter". |
-| Investigate rules | Sidebar | below {c["discovery_confidence_max"]:g}, at least {c["discovery_min_impact"]:g} | When an unknown is worth looking into. |
-| How serious, how much work | Sidebar | see above | Widen the gaps to make severity or effort count more. |
-| Per-ticket tags | Step 3 | | Group, serious, sure, work, hand off, goal, makes-go-away. The model suggests, you decide. |
-| Groups | Step 3 | | Work and how-sure for the shared fix. Override the tickets' own values. |
+| Account size | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
+| Priority threshold | Sidebar | {c["do_now_threshold"]:g} | Lower it and more is prioritised, usually more proactive work. |
+| Team capacity | Sidebar | {c["quarter_capacity_points"]:g} | Points available this quarter. |
+| Metric bonus | Sidebar | {c["metric_bonus"]:g} | Set to 1 to remove the proactive advantage. |
+| 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still qualifies as "Later" rather than "Not this quarter". |
+| Investigation rules | Sidebar | below {c["discovery_confidence_max"]:g}, at least {c["discovery_min_impact"]:g} | When an unknown warrants a time-boxed investigation. |
+| Severity and effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. |
+| Per-ticket tags | Step 3 | | Cluster, severity, confidence, effort, hand off, metric-linked, eliminates. The model proposes, you decide. |
+| Clusters | Step 3 | | Effort and confidence for the shared fix. Override the tickets' own values. |
 """)
 
 # --------------------------------------------------------------------------- #
@@ -241,7 +241,7 @@ elif use_bundled:
 
 
 def empty_sections(from_step: int, why: str) -> None:
-    titles = {2: "Step 2. Let the AI model read it", 3: "Step 3. Review and adjust", 4: "Step 4. Results", 5: "Step 5. Finalise and download"}
+    titles = {2: "Step 2. AI analysis", 3: "Step 3. Review and adjust", 4: "Step 4. Results", 5: "Step 5. Finalise and export"}
     for n in range(from_step, 6):
         st.header(titles[n])
         st.caption(why)
@@ -256,18 +256,18 @@ if ss.backlog is None:
 
 bl = ss.backlog
 st.caption(f"{ss.backlog_name}: {len(bl)} tickets from {bl['source_account'].nunique()} sources. "
-           f"Work-size hints read as: {dict(bl['effort_bucket'].value_counts())}.")
+           f"Effort hints read as: {dict(bl['effort_bucket'].value_counts())}.")
 with st.expander("The backlog"):
     st.dataframe(bl.drop(columns=["effort_bucket"]), width="stretch", hide_index=True)
 
 # --------------------------------------------------------------------------- #
 # Step 2: AI pass
 # --------------------------------------------------------------------------- #
-st.header("Step 2. Let the AI model read it")
-st.markdown("One call with the whole backlog. The model suggests tags and explains each one. It is told not to score.")
+st.header("Step 2. AI analysis")
+st.markdown("A single call with the entire backlog. The model proposes tags and explains each one. It is instructed not to score.")
 
-with st.expander("The instructions the model gets (you can edit them before running)"):
-    st.caption("Change the wording if you want different definitions or emphasis. The fields it must return are fixed.")
+with st.expander("Model instructions (editable before running)"):
+    st.caption("Adjust the wording for different definitions or emphasis. The fields the model must return are fixed.")
     edited_prompt = st.text_area("prompt", value=ss.system_prompt, height=400, key="prompt_editor", label_visibility="collapsed")
     p1, p2, p3 = st.columns([1, 1, 3])
     if p1.button("Use this version", disabled=edited_prompt == ss.system_prompt):
@@ -287,8 +287,8 @@ cur_hash = ai_pass.prompt_hash(bl, model, ss.system_prompt)
 runs_left = MAX_RUNS_PER_SESSION - ss.ai_runs
 
 b1, b2, b3 = st.columns([1, 1, 2])
-run_api = b1.button(f"Run the AI model ({runs_left} left this session)", type="primary", disabled=(not api_key) or runs_left <= 0)
-load_cached = b2.button("Load the saved result", disabled=cached is None)
+run_api = b1.button(f"Run AI analysis ({runs_left} left this session)", type="primary", disabled=(not api_key) or runs_left <= 0)
+load_cached = b2.button("Load saved analysis", disabled=cached is None)
 b3.caption(f"Model: {model}" + ("  |  custom instructions" if ss.system_prompt != ai_pass.SYSTEM_PROMPT else ""))
 
 if run_api:
@@ -309,23 +309,23 @@ if load_cached and cached:
 
 if ss.ai_blob is None:
     if cached is None:
-        st.info("No saved result for this file yet. Run the model to get one.")
+        st.info("No saved analysis for this file yet. Run the AI analysis to generate one.")
     else:
-        st.caption(f"A saved result exists ({cached.get('source')}, {cached.get('generated_at')}). "
+        st.caption(f"A saved analysis exists ({cached.get('source')}, {cached.get('generated_at')}). "
                    + ("It matches the current file and instructions." if cached.get("prompt_hash") == cur_hash
                       else "The file or instructions have changed since; consider running again."))
-    empty_sections(3, "Waiting for the AI model's suggestions.")
+    empty_sections(3, "Waiting for the AI analysis.")
     st.stop()
 
 meta = ss.ai_blob
 if meta.get("source") == "seed":
-    st.warning("This is the sample result that ships with the app, written offline, not a live model run. Run the model to replace it.")
+    st.warning("This is the sample analysis that ships with the app, written offline, not a live model run. Run the AI analysis to replace it.")
 else:
-    st.caption(f"Result from {meta.get('model')} at {meta.get('generated_at')}.")
+    st.caption(f"Analysis from {meta.get('model')} at {meta.get('generated_at')}.")
 
 obs = meta["result"].get("cross_record_observations", [])
 if obs:
-    with st.expander("What the model noticed across tickets", expanded=True):
+    with st.expander("Cross-ticket observations from the model", expanded=True):
         for o in obs:
             st.markdown(f"- {o}")
 
@@ -335,13 +335,13 @@ if obs:
 st.header("Step 3. Review and adjust")
 locked = ss.finalized
 if locked:
-    st.success("Finalised. Tables are locked. Use 'Reopen' in step 5 to change anything.")
+    st.success("Finalised. Tables are locked. Use 'Reopen' in step 5 to make changes.")
 else:
-    st.markdown("Everything below is a suggestion until you finalise. Change what you disagree with and add a note so the change is explained in the log.")
+    st.markdown("Everything below is a proposal until you finalise. Change what you disagree with and add a note so the change is recorded in the log.")
 
 # ---- 3a accounts ----
-st.subheader("3a. How much each account counts")
-st.caption("The model read the notes for size clues and suggested a weight from 1 (small) to 5 (top). Edit the weight column if you disagree.")
+st.subheader("3a. Account size")
+st.caption("The model read the notes for size indicators and proposed an account size from 1 (small) to 5 (top). Edit the account size column if you disagree.")
 acc_editor = st.data_editor(
     ss.accounts_df,
     key="account_editor",
@@ -351,9 +351,9 @@ acc_editor = st.data_editor(
     column_order=["account", "size_clue", "suggested_weight", "weight", "reason", "evidence"],
     column_config={
         "account": st.column_config.TextColumn("account", width="medium"),
-        "size_clue": st.column_config.TextColumn("size read from notes", width="small"),
-        "suggested_weight": st.column_config.NumberColumn("model suggests", width="small"),
-        "weight": st.column_config.NumberColumn("weight (edit)", min_value=0.0, max_value=10.0, step=0.5, format="%.1f", width="small"),
+        "size_clue": st.column_config.TextColumn("size per notes", width="small"),
+        "suggested_weight": st.column_config.NumberColumn("model proposes", width="small"),
+        "weight": st.column_config.NumberColumn("account size (edit)", min_value=0.0, max_value=10.0, step=0.5, format="%.1f", width="small"),
         "reason": st.column_config.TextColumn("model's reason", width="large"),
         "evidence": st.column_config.TextColumn("evidence in notes", width="large"),
     },
@@ -362,19 +362,19 @@ working_accounts = ss.accounts_df if locked else acc_editor
 ss.config["account_weight"] = {a: float(w) for a, w in zip(working_accounts["account"], working_accounts["weight"].fillna(3.0))}
 config = merged_config(ss.config)
 
-# ---- 3b groups ----
-st.subheader("3b. Groups: tickets that share one fix")
-st.caption("A group's work and how-sure apply to every ticket in it. Which tickets belong is set per ticket in 3c; the tickets column here is the model's original suggestion.")
+# ---- 3b clusters ----
+st.subheader("3b. Clusters: tickets that share one root cause")
+st.caption("A cluster's effort and confidence apply to every ticket in it. Membership is set per ticket in 3c; the tickets column here is the model's original proposal.")
 
-with st.expander("Add a group the model missed"):
+with st.expander("Add a cluster the model missed"):
     a1, a2 = st.columns([1, 2])
-    new_id = a1.text_input("group id (short, no spaces)", key="new_cl_id", disabled=locked)
-    new_label = a2.text_input("what it is", key="new_cl_label", disabled=locked)
+    new_id = a1.text_input("cluster id (short, no spaces)", key="new_cl_id", disabled=locked)
+    new_label = a2.text_input("label", key="new_cl_label", disabled=locked)
     a3, a4 = st.columns(2)
-    new_effort = a3.selectbox("how much work", EFFORT_BUCKETS, index=1, key="new_cl_effort", disabled=locked)
-    new_conf = a4.slider("how sure", 0.0, 1.0, 0.5, 0.05, key="new_cl_conf", disabled=locked)
-    new_hyp = st.text_input("what we think the shared cause is", key="new_cl_hyp", disabled=locked)
-    if st.button("Add group", disabled=locked or not new_id.strip()):
+    new_effort = a3.selectbox("effort", EFFORT_BUCKETS, index=1, key="new_cl_effort", disabled=locked)
+    new_conf = a4.slider("confidence", 0.0, 1.0, 0.5, 0.05, key="new_cl_conf", disabled=locked)
+    new_hyp = st.text_input("root cause hypothesis", key="new_cl_hyp", disabled=locked)
+    if st.button("Add cluster", disabled=locked or not new_id.strip()):
         cid = new_id.strip().lower().replace(" ", "_")
         existing = ss.clusters["cluster_id"].astype(str).tolist() if len(ss.clusters) else []
         if cid in existing:
@@ -397,12 +397,12 @@ cl_editor = st.data_editor(
     width="stretch",
     column_order=["cluster_id", "label", "ticket_ids", "effort_bucket", "confidence", "root_cause_hypothesis", "evidence"],
     column_config={
-        "cluster_id": st.column_config.TextColumn("group", width="small"),
-        "label": st.column_config.TextColumn("what it is", width="medium"),
-        "ticket_ids": st.column_config.TextColumn("tickets (model's suggestion)", width="small"),
-        "effort_bucket": st.column_config.SelectboxColumn("how much work", options=EFFORT_BUCKETS, width="small"),
-        "confidence": st.column_config.NumberColumn("how sure", min_value=0.0, max_value=1.0, step=0.05, format="%.2f", width="small"),
-        "root_cause_hypothesis": st.column_config.TextColumn("shared cause", width="large"),
+        "cluster_id": st.column_config.TextColumn("cluster", width="small"),
+        "label": st.column_config.TextColumn("label", width="medium"),
+        "ticket_ids": st.column_config.TextColumn("tickets (model's proposal)", width="small"),
+        "effort_bucket": st.column_config.SelectboxColumn("effort", options=EFFORT_BUCKETS, width="small"),
+        "confidence": st.column_config.NumberColumn("confidence", min_value=0.0, max_value=1.0, step=0.05, format="%.2f", width="small"),
+        "root_cause_hypothesis": st.column_config.TextColumn("root cause hypothesis", width="large"),
         "evidence": st.column_config.TextColumn("evidence", width="large"),
     },
 )
@@ -412,7 +412,7 @@ cluster_ids = [""] + sorted(working_clusters["cluster_id"].astype(str).tolist())
 
 if not locked and len(working_clusters):
     rm1, rm2 = st.columns([1, 3])
-    victim = rm1.selectbox("Remove a group", [""] + [c for c in cluster_ids if c], key="rm_cl")
+    victim = rm1.selectbox("Remove a cluster", [""] + [c for c in cluster_ids if c], key="rm_cl")
     if rm2.button("Remove", disabled=not victim):
         ss.clusters = working_clusters[working_clusters["cluster_id"] != victim].reset_index(drop=True)
         base_t = ss.get("_pending_tickets", ss.tickets).copy()
@@ -423,7 +423,7 @@ if not locked and len(working_clusters):
 
 # ---- 3c tickets ----
 st.subheader("3c. Tickets")
-st.caption("Pick a group to put a ticket in one. For initiatives, list the request ids it would make go away, separated by commas.")
+st.caption("Select a cluster to assign a ticket to it. For proactive items, list the request ids it would eliminate, separated by commas.")
 tk_editor = st.data_editor(
     ss.tickets,
     key="ticket_editor",
@@ -438,17 +438,17 @@ tk_editor = st.data_editor(
     column_config={
         "request_id": st.column_config.TextColumn("ticket", width="small"),
         "source_account": st.column_config.TextColumn("account", width="small"),
-        "classification": st.column_config.SelectboxColumn("request or initiative", options=CLASSIFICATIONS, width="small"),
-        "cluster_id": st.column_config.SelectboxColumn("group", options=cluster_ids, width="small"),
-        "severity": st.column_config.SelectboxColumn("how serious", options=SEVERITIES, width="small"),
-        "confidence": st.column_config.NumberColumn("how sure", min_value=0.0, max_value=1.0, step=0.05, format="%.2f", width="small"),
-        "effort_bucket": st.column_config.SelectboxColumn("how much work", options=EFFORT_BUCKETS, width="small"),
+        "classification": st.column_config.SelectboxColumn("reactive / proactive", options=CLASSIFICATIONS, width="small"),
+        "cluster_id": st.column_config.SelectboxColumn("cluster", options=cluster_ids, width="small"),
+        "severity": st.column_config.SelectboxColumn("severity", options=SEVERITIES, width="small"),
+        "confidence": st.column_config.NumberColumn("confidence", min_value=0.0, max_value=1.0, step=0.05, format="%.2f", width="small"),
+        "effort_bucket": st.column_config.SelectboxColumn("effort", options=EFFORT_BUCKETS, width="small"),
         "redirect": st.column_config.CheckboxColumn("hand off", width="small"),
-        "metric_linked": st.column_config.CheckboxColumn("company goal", width="small"),
-        "retires": st.column_config.TextColumn("makes go away", width="medium"),
-        "reviewer_note": st.column_config.TextColumn("your note", width="medium"),
+        "metric_linked": st.column_config.CheckboxColumn("metric-linked", width="small"),
+        "retires": st.column_config.TextColumn("eliminates", width="medium"),
+        "reviewer_note": st.column_config.TextColumn("reviewer note", width="medium"),
         "reason": st.column_config.TextColumn("model's reason", width="large"),
-        "ambiguity_note": st.column_config.TextColumn("model flagged for you", width="large"),
+        "ambiguity_note": st.column_config.TextColumn("flagged for review", width="large"),
         "summary": st.column_config.TextColumn("summary", width="large"),
     },
 )
@@ -459,12 +459,12 @@ if len(working_clusters):
     counts = working_tickets["cluster_id"].fillna("").astype(str).value_counts()
     lonely = [c for c in working_clusters["cluster_id"].astype(str) if counts.get(c, 0) < 2]
     if lonely:
-        st.caption(f"Groups with fewer than two tickets (scored as single tickets until you add more): {', '.join(lonely)}")
+        st.caption(f"Clusters with fewer than two tickets (scored as single tickets until more are assigned): {', '.join(lonely)}")
 unknown = sorted(set(working_tickets["cluster_id"].fillna("").astype(str)) - set(cluster_ids))
 if unknown:
-    st.warning(f"Some tickets point at groups that no longer exist: {', '.join(unknown)}. They will score on their own values.")
+    st.warning(f"Some tickets reference clusters that no longer exist: {', '.join(unknown)}. They will be scored on their own values.")
 
-if not locked and st.button("Throw away my edits and go back to the model's suggestions"):
+if not locked and st.button("Discard my edits and restore the model's proposals"):
     ss.tickets = ss.ai_tickets.copy()
     ss.clusters = ss.ai_clusters.copy()
     ss.accounts_df = build_accounts_df(meta["result"].get("accounts", []))
@@ -474,7 +474,7 @@ if not locked and st.button("Throw away my edits and go back to the model's sugg
 # --------------------------------------------------------------------------- #
 # Step 4: results
 # --------------------------------------------------------------------------- #
-st.header("Step 4. Results" + ("" if locked else "  (live; updates as you edit)"))
+st.header("Step 4. Results" + ("" if locked else "  (live preview; updates as you edit)"))
 
 try:
     scored, clusters_scored = score_backlog(working_tickets, working_clusters, config)
@@ -486,28 +486,28 @@ split = capacity_split(scored, config)
 diff = diff_tags(ss.ai_tickets, working_tickets)
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Customer requests", f"{split['reactive_pct']}%", f"{split['reactive_points']:g} pts")
-m2.metric("Our own initiatives", f"{split['proactive_pct']}%", f"{split['proactive_points']:g} pts")
-m3.metric("Points used", f"{split['committed_points']:g} of {split['capacity_points']:g}", f"{split['headroom_points']:g} free")
-m4.metric("Requests by ticket count", f"{split['reactive_in_backlog_pct']}%")
-m5.metric("Suggestions you changed", len(diff), f"{diff['request_id'].nunique()} tickets" if len(diff) else None)
+m1.metric("Reactive (customer requests)", f"{split['reactive_pct']}%", f"{split['reactive_points']:g} pts")
+m2.metric("Proactive (team initiatives)", f"{split['proactive_pct']}%", f"{split['proactive_points']:g} pts")
+m3.metric("Points allocated", f"{split['committed_points']:g} of {split['capacity_points']:g}", f"{split['headroom_points']:g} unallocated")
+m4.metric("Reactive by ticket count", f"{split['reactive_in_backlog_pct']}%")
+m5.metric("Proposals you changed", len(diff), f"{diff['request_id'].nunique()} tickets" if len(diff) else None)
 
-st.subheader("Why this split")
+st.subheader("Rationale for the split")
 st.markdown(explain_split(scored, clusters_scored, split, config, working_tickets, working_clusters))
 
 DISPLAY_COLS = {
-    "request_id": "ticket", "source_account": "account", "classification": "type", "cluster_id": "group",
-    "severity": "how serious", "eff_confidence": "how sure", "eff_effort_bucket": "work", "impact": "matters",
-    "cost_share": "points", "score": "score", "capacity_note": "note", "reason": "why",
+    "request_id": "ticket", "source_account": "account", "classification": "type", "cluster_id": "cluster",
+    "severity": "severity", "eff_confidence": "confidence", "eff_effort_bucket": "effort", "impact": "impact",
+    "cost_share": "points", "score": "score", "capacity_note": "note", "reason": "rationale",
 }
 
 
 def show(sub: pd.DataFrame) -> None:
     st.dataframe(sub[list(DISPLAY_COLS)].rename(columns=DISPLAY_COLS), width="stretch", hide_index=True,
-                 column_config={"why": st.column_config.TextColumn("why", width="large")})
+                 column_config={"rationale": st.column_config.TextColumn("rationale", width="large")})
 
 
-tab_labels = BUCKET_ORDER + ["Groups", "What we assumed", "What you changed", "Everything"]
+tab_labels = BUCKET_ORDER + ["Clusters", "Assumptions", "Changes from the model", "All tickets"]
 tabs = st.tabs(tab_labels)
 for tab, bucket in zip(tabs[: len(BUCKET_ORDER)], BUCKET_ORDER):
     with tab:
@@ -518,17 +518,17 @@ for tab, bucket in zip(tabs[: len(BUCKET_ORDER)], BUCKET_ORDER):
         else:
             show(sub)
 with tabs[len(BUCKET_ORDER)]:
-    st.caption("One row per fix. Single tickets appear as their own group.")
-    st.dataframe(clusters_scored.rename(columns={"key": "group", "label": "what it is", "breadth": "tickets in group",
-                                                 "effort_bucket": "work", "confidence": "how sure", "cluster_impact": "matters",
+    st.caption("One row per fix. Unclustered tickets appear as their own row.")
+    st.dataframe(clusters_scored.rename(columns={"key": "cluster", "label": "label", "breadth": "tickets in cluster",
+                                                 "effort_bucket": "effort", "confidence": "confidence", "cluster_impact": "impact",
                                                  "cost_points": "points"}), width="stretch", hide_index=True)
 with tabs[len(BUCKET_ORDER) + 1]:
     st.markdown(list_assumptions(scored, clusters_scored, config, meta["result"].get("accounts", []), meta, diff))
 with tabs[len(BUCKET_ORDER) + 2]:
     if diff.empty:
-        st.write("You have not changed any of the model's suggestions.")
+        st.write("No changes from the model's proposals.")
     else:
-        st.dataframe(diff.rename(columns={"ai_proposed": "model suggested", "reviewer_final": "you chose", "reviewer_note": "your note"}),
+        st.dataframe(diff.rename(columns={"ai_proposed": "model proposed", "reviewer_final": "reviewer final", "reviewer_note": "reviewer note"}),
                      width="stretch", hide_index=True)
 with tabs[len(BUCKET_ORDER) + 3]:
     st.dataframe(scored.drop(columns=["summary"], errors="ignore"), width="stretch", hide_index=True)
@@ -536,7 +536,7 @@ with tabs[len(BUCKET_ORDER) + 3]:
 # --------------------------------------------------------------------------- #
 # Step 5: finalise
 # --------------------------------------------------------------------------- #
-st.header("Step 5. Finalise and download")
+st.header("Step 5. Finalise and export")
 f1, f2, f3 = st.columns([1, 1, 4])
 if f1.button("Finalise", type="primary", disabled=locked):
     ss.tickets = working_tickets.copy()
@@ -550,7 +550,7 @@ if f2.button("Reopen", disabled=not locked):
     st.rerun()
 
 if not locked:
-    st.caption("Finalise locks the tables and turns on the downloads.")
+    st.caption("Finalise locks the tables and enables the downloads.")
 else:
     summary_md = build_summary(scored, clusters_scored, split, config, diff, meta, obs, working_tickets, working_clusters)
     final_json = {
@@ -563,7 +563,7 @@ else:
     e1, e2, e3, e4 = st.columns(4)
     e1.download_button("Scored tickets (CSV)", scored.to_csv(index=False), "scored_backlog.csv", "text/csv")
     e2.download_button("Summary (markdown)", summary_md, "summary.md", "text/markdown")
-    e3.download_button("What you changed (CSV)", diff.to_csv(index=False), "changes_from_model.csv", "text/csv")
+    e3.download_button("Changes from the model (CSV)", diff.to_csv(index=False), "changes_from_model.csv", "text/csv")
     e4.download_button("Final tags and settings (JSON)", json.dumps(final_json, indent=2), "finalized.json", "application/json")
     with st.expander("Preview the summary"):
         st.markdown(summary_md)

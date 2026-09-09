@@ -39,7 +39,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Story points the team can commit next quarter (assumption: 5 people,
     # 6 two-week sprints, ~5 points per sprint after support load).
     "quarter_capacity_points": 30,
+    # After the threshold pass, pull the best-scoring items from lower
+    # categories into "Do now" until capacity is used. "later" pulls from
+    # Later only; "later_and_declined" also from Not this quarter; "off" leaves
+    # spare points unallocated.
+    "fill_spare_capacity": "later",
 }
+FILL_OPTIONS = {"later": ["Later"], "later_and_declined": ["Later", "Not this quarter"], "off": []}
 
 TIER_WEIGHTS = {"top": 5, "enterprise": 5, "mid": 3, "small": 1, "internal": 3, "unknown": 3}
 
@@ -203,21 +209,42 @@ def score_backlog(
     # ---- Buckets --------------------------------------------------------------
     t["bucket"] = t.apply(lambda r: _bucket(r, cfg), axis=1)
 
-    # ---- Capacity check: spill lowest Do-now items to Defer -----------------
+    # ---- Capacity check: spill lowest Do-now items to Later -----------------
+    # Points are counted per ticket as cost_share (a cluster's cost divided
+    # among its members), the same way capacity_split() counts them, so the
+    # allocation and the reported split always agree.
     t["capacity_note"] = ""
+    cap = float(cfg["quarter_capacity_points"])
+    used = float(t.loc[t["bucket"] == "Investigate first", "cost_share"].sum())
     do_now = t[t["bucket"] == "Do now"].sort_values("score", ascending=False)
-    used = 0.0
-    counted_keys: set[str] = set()
     for idx, r in do_now.iterrows():
-        key = r["cluster_id"] if (r["classification"] == "reactive" and r["cluster_id"]) else r["request_id"]
-        # A cluster's cost is paid once, not per ticket.
-        increment = 0.0 if key in counted_keys else float(r["cost_points"])
-        if used + increment > cfg["quarter_capacity_points"] and increment > 0:
+        share = float(r["cost_share"])
+        if used + share > cap + 1e-9:
             t.loc[idx, "bucket"] = "Later"
             t.loc[idx, "capacity_note"] = "over capacity"
             continue
-        used += increment
-        counted_keys.add(key)
+        used += share
+
+    # ---- Fill spare capacity from lower categories, best score first -------
+    eligible = FILL_OPTIONS.get(cfg.get("fill_spare_capacity", "later"), ["Later"])
+    if eligible:
+        pool = t[t["bucket"].isin(eligible)].sort_values("score", ascending=False)
+        seen_keys: set[str] = set()
+        for idx, r in pool.iterrows():
+            is_cluster = bool(r["classification"] == "reactive" and r["cluster_id"])
+            key = r["cluster_id"] if is_cluster else r["request_id"]
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            members = list(pool.index[(pool["cluster_id"] == key) & (pool["classification"] == "reactive")]) if is_cluster else [idx]
+            cost = float(t.loc[members, "cost_share"].sum())
+            if used + cost > cap + 1e-9:
+                continue          # does not fit; try the next smaller item
+            used += cost
+            for m in members:
+                src = t.loc[m, "bucket"]
+                t.loc[m, "bucket"] = "Do now"
+                t.loc[m, "capacity_note"] = f"pulled up from {src}"
 
     t["score"] = t["score"].round(2)
     t["impact"] = t["impact"].round(2)

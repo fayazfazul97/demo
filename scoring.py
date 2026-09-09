@@ -46,7 +46,14 @@ TIER_WEIGHTS = {"top": 5, "enterprise": 5, "mid": 3, "small": 1, "internal": 3, 
 EFFORT_BUCKETS = ["small", "1-2 sprints", "large", "unclear"]
 SEVERITIES = ["low", "medium", "high"]
 CLASSIFICATIONS = ["reactive", "proactive"]
-BUCKET_ORDER = ["Do now", "Discovery spike", "Defer", "Decline", "Redirect"]
+BUCKET_ORDER = ["Do now", "Investigate first", "Later", "Not this quarter", "Hand off"]
+BUCKET_HELP = {
+    "Do now": "Scores above the funding line and fits in this quarter's capacity.",
+    "Investigate first": "We do not know the cause yet, but it matters enough to spend a little time finding out before estimating.",
+    "Later": "Close to the line. Revisit if capacity frees up or the facts change.",
+    "Not this quarter": "Scores well below the line. Say no for now and tell the account why.",
+    "Hand off": "Not engineering work: a config change, a data cleanup, or a process. Route it to whoever owns that.",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -206,7 +213,7 @@ def score_backlog(
         # A cluster's cost is paid once, not per ticket.
         increment = 0.0 if key in counted_keys else float(r["cost_points"])
         if used + increment > cfg["quarter_capacity_points"] and increment > 0:
-            t.loc[idx, "bucket"] = "Defer"
+            t.loc[idx, "bucket"] = "Later"
             t.loc[idx, "capacity_note"] = "over capacity"
             continue
         used += increment
@@ -224,23 +231,23 @@ def score_backlog(
 
 def _bucket(r, cfg) -> str:
     if r["redirect"]:
-        return "Redirect"
+        return "Hand off"
     if (
         r["eff_effort_bucket"] == "unclear"
         and r["eff_confidence"] < cfg["discovery_confidence_max"]
         and r["impact"] >= cfg["discovery_min_impact"]
     ):
-        return "Discovery spike"
+        return "Investigate first"
     if r["score"] >= cfg["do_now_threshold"]:
         return "Do now"
     if r["score"] >= cfg["do_now_threshold"] * cfg["defer_ratio"]:
-        return "Defer"
-    return "Decline"
+        return "Later"
+    return "Not this quarter"
 
 
 def capacity_split(scored: pd.DataFrame, config: dict[str, Any]) -> dict[str, Any]:
     """Reactive vs proactive share of committed points (Do now + Discovery spikes)."""
-    committed = scored[scored["bucket"].isin(["Do now", "Discovery spike"])]
+    committed = scored[scored["bucket"].isin(["Do now", "Investigate first"])]
     by_class = committed.groupby("classification")["cost_share"].sum()
     reactive = float(by_class.get("reactive", 0.0))
     proactive = float(by_class.get("proactive", 0.0))

@@ -156,6 +156,39 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
     return "\n".join(lines)
 
 
+def gaps_table(scored: pd.DataFrame, tickets: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Every ticket the model flagged, with the call that was made and the reviewer's note."""
+    if "ambiguity_note" not in scored:
+        return pd.DataFrame()
+    g = scored[scored["ambiguity_note"].fillna("").astype(str).str.strip() != ""].copy()
+    if g.empty:
+        return pd.DataFrame(columns=["ticket", "account", "what was flagged", "call made", "category", "reviewer note"])
+    notes = {}
+    if tickets is not None and "reviewer_note" in tickets:
+        notes = dict(zip(tickets["request_id"], tickets["reviewer_note"].fillna("")))
+
+    def call(r) -> str:
+        bits = [r["classification"], f"severity {r['severity']}", f"confidence {r['eff_confidence']:g}", f"effort {r['eff_effort_bucket']}"]
+        if r.get("cluster_id"):
+            bits.append(f"cluster {r['cluster_id']}")
+        if r.get("redirect"):
+            bits.append("handed off")
+        ret = r.get("retires")
+        if isinstance(ret, list) and ret:
+            bits.append("eliminates " + ", ".join(ret))
+        return "; ".join(bits)
+
+    out = pd.DataFrame({
+        "ticket": g["request_id"],
+        "account": g["source_account"],
+        "what was flagged": g["ambiguity_note"],
+        "call made": g.apply(call, axis=1),
+        "category": g["bucket"].astype(str) + g["capacity_note"].apply(lambda n: f" ({n})" if n else ""),
+        "reviewer note": g["request_id"].map(notes).fillna(""),
+    })
+    return out.reset_index(drop=True)
+
+
 def build_summary(scored, clusters, split, config, diff, ai_meta, observations, tickets=None, cluster_df=None) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     accounts = (ai_meta or {}).get("result", {}).get("accounts") if ai_meta else None
@@ -168,6 +201,18 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
         "",
         "## Assumptions",
         list_assumptions(scored, clusters, config, accounts, ai_meta, diff),
+        "",
+        "## Gaps and contradictions",
+        "Every ticket the model flagged as needing a judgement, the call that was made, and the reviewer's note.",
+        "",]
+    gaps = gaps_table(scored, tickets)
+    if gaps.empty:
+        lines.append("No tickets were flagged.")
+    else:
+        for _, g in gaps.iterrows():
+            note = f" Reviewer: {g['reviewer note']}" if g["reviewer note"] else ""
+            lines.append(f"- {g['ticket']} ({g['account']}): {g['what was flagged']} Call: {g['call made']} -> {g['category']}.{note}")
+    lines += [
         "",
         "## How the score works",
         "score = impact x confidence / effort.",

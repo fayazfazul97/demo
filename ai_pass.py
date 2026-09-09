@@ -66,6 +66,7 @@ ambiguity_note
 
 accounts
 - You have no prior knowledge of these accounts. Derive each account's tier ONLY from what the summaries and raw_notes in this backlog say (phrases like "top-5 by GMV", "enterprise tier", "mid-market", "small regional, low GMV"). Return one entry per distinct source_account with a tier of "top", "enterprise", "mid", "small", "internal", or "unknown", and quote the evidence. Use "unknown" when the notes give no tier signal; do not guess from the account name. Treat "Internal" (or any source that is the product team itself) as "internal".
+- Also suggest a weight from 1 to 5 for how much that account should count when ranking work. Guide: 5 for top or enterprise accounts, 3 for mid-market, 1 for small, 3 for internal and for unknown. Move off the guide only when the notes give a reason (for example a mid-size account flagged as a churn risk might be a 4) and say why in weight_reason.
 
 Be specific and terse in every reason. Cite request_ids when you link tickets."""
 
@@ -82,11 +83,13 @@ TOOL_SCHEMA = {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["source_account", "tier", "evidence"],
+                    "required": ["source_account", "tier", "evidence", "suggested_weight", "weight_reason"],
                     "properties": {
                         "source_account": {"type": "string", "description": "Exactly as it appears in the data."},
                         "tier": {"type": "string", "enum": ["top", "enterprise", "mid", "small", "internal", "unknown"]},
                         "evidence": {"type": "string", "description": "The phrase(s) and request_ids the tier was read from."},
+                        "suggested_weight": {"type": "integer", "minimum": 1, "maximum": 5, "description": "How much this account should count, 1 to 5."},
+                        "weight_reason": {"type": "string", "description": "One line on why this weight."},
                     },
                 },
             },
@@ -201,7 +204,11 @@ def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
     seen = {a["source_account"] for a in payload.get("accounts", [])}
     for acct in sorted(set(df["source_account"])):
         if acct not in seen:
-            payload.setdefault("accounts", []).append({"source_account": acct, "tier": "unknown", "evidence": "not returned by model"})
+            payload.setdefault("accounts", []).append({"source_account": acct, "tier": "unknown", "evidence": "not returned by model",
+                                                       "suggested_weight": 3, "weight_reason": "default for unknown"})
+    for a in payload["accounts"]:
+        a.setdefault("suggested_weight", {"top": 5, "enterprise": 5, "mid": 3, "small": 1}.get(a.get("tier"), 3))
+        a.setdefault("weight_reason", f"guide value for tier '{a.get('tier')}'")
     cluster_ids = {c["cluster_id"] for c in payload["clusters"]}
     for t in payload["tickets"]:
         if t.get("cluster_id") and t["cluster_id"] not in cluster_ids:

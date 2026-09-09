@@ -18,7 +18,7 @@ import pandas as pd
 import streamlit as st
 
 import ai_pass
-from report import build_summary, explain_split, list_assumptions
+from report import build_summary, explain_split, gaps_table, list_assumptions
 from scoring import (
     BUCKET_HELP,
     BUCKET_ORDER,
@@ -520,7 +520,7 @@ def show(sub: pd.DataFrame) -> None:
                  column_config={"rationale": st.column_config.TextColumn("rationale", width="large")})
 
 
-tab_labels = BUCKET_ORDER + ["Clusters", "Assumptions", "Changes from the model", "All tickets"]
+tab_labels = BUCKET_ORDER + ["Clusters", "Assumptions", "Gaps and contradictions", "Changes from the model", "All tickets"]
 tabs = st.tabs(tab_labels)
 for tab, bucket in zip(tabs[: len(BUCKET_ORDER)], BUCKET_ORDER):
     with tab:
@@ -538,12 +538,24 @@ with tabs[len(BUCKET_ORDER)]:
 with tabs[len(BUCKET_ORDER) + 1]:
     st.markdown(list_assumptions(scored, clusters_scored, config, meta["result"].get("accounts", []), meta, diff))
 with tabs[len(BUCKET_ORDER) + 2]:
+    gaps = gaps_table(scored, working_tickets)
+    st.caption("Every ticket the model flagged as needing a judgement, in one place: what was flagged, the tags it ended up with, where it landed, and your note. "
+               "Add a reviewer note in step 3c to record your reasoning here.")
+    if gaps.empty:
+        st.write("No tickets were flagged.")
+    else:
+        st.write(f"{len(gaps)} of {len(scored)} tickets flagged.")
+        st.dataframe(gaps, width="stretch", hide_index=True,
+                     column_config={"what was flagged": st.column_config.TextColumn(width="large"),
+                                    "call made": st.column_config.TextColumn(width="large"),
+                                    "reviewer note": st.column_config.TextColumn(width="medium")})
+with tabs[len(BUCKET_ORDER) + 3]:
     if diff.empty:
         st.write("No changes from the model's proposals.")
     else:
         st.dataframe(diff.rename(columns={"ai_proposed": "model proposed", "reviewer_final": "reviewer final", "reviewer_note": "reviewer note"}),
                      width="stretch", hide_index=True)
-with tabs[len(BUCKET_ORDER) + 3]:
+with tabs[len(BUCKET_ORDER) + 4]:
     st.dataframe(scored.drop(columns=["summary"], errors="ignore"), width="stretch", hide_index=True)
 
 # --------------------------------------------------------------------------- #

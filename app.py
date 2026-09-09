@@ -25,6 +25,7 @@ from scoring import (
     CLASSIFICATIONS,
     DEFAULT_CONFIG,
     EFFORT_BUCKETS,
+    FILL_OPTIONS,
     SEVERITIES,
     TIER_WEIGHTS,
     capacity_split,
@@ -131,6 +132,10 @@ with st.sidebar:
     cfg["do_now_threshold"] = st.slider("Priority threshold (score required for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
     cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (points)", 1, 200, int(cfg["quarter_capacity_points"]))
     cfg["metric_bonus"] = st.slider("Bonus for proactive items linked to a company metric", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
+    fill_labels = {"later": "Pull from Later", "later_and_declined": "Pull from Later and Not this quarter", "off": "Leave unallocated"}
+    cfg["fill_spare_capacity"] = st.selectbox("Spare capacity", list(fill_labels), key="fill_mode",
+                                              format_func=lambda k: fill_labels[k],
+                                              help="After the threshold pass, the best-scoring items that fit are pulled into Do now until capacity is used.")
     with st.expander("More settings"):
         cfg["defer_ratio"] = st.slider("'Later' band (share of the threshold)", 0.1, 1.0, float(cfg["defer_ratio"]), 0.05)
         cfg["discovery_confidence_max"] = st.slider("'Investigate first' when confidence is below", 0.0, 1.0, float(cfg["discovery_confidence_max"]), 0.05)
@@ -144,7 +149,7 @@ with st.sidebar:
             cfg["effort_points"][eb] = st.number_input(label, 0.5, 20.0, float(cfg["effort_points"][eb]), 0.5, key=f"ep_{eb}")
     if st.button("Reset settings"):
         for k in list(ss.keys()):
-            if k.startswith(("ep_", "sv_")):
+            if k.startswith(("ep_", "sv_")) or k == "fill_mode":
                 del ss[k]
         aw = dict(ss.config["account_weight"])
         ss.config = copy.deepcopy(DEFAULT_CONFIG)
@@ -199,7 +204,7 @@ Every ticket receives a single score. Higher means higher priority.
 4. **Later.** Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more; deferred, revisited if capacity allows.
 5. **Not this quarter.** Everything else; declined for this cycle.
 
-Capacity is then allocated: "Do now" items are taken in score order until {c["quarter_capacity_points"]:g} points are used. Anything that does not fit moves to "Later".
+Capacity is then allocated: "Do now" items are taken in score order until {c["quarter_capacity_points"]:g} points are used. Anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled up into "Do now", so capacity is not left unused. Those items carry a "pulled up" note in the results.
 
 **The split** is the share of allocated points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
 
@@ -209,6 +214,7 @@ Capacity is then allocated: "Do now" items are taken in score order until {c["qu
 | Priority threshold | Sidebar | {c["do_now_threshold"]:g} | Lower it and more is prioritised, usually more proactive work. |
 | Team capacity | Sidebar | {c["quarter_capacity_points"]:g} | Points available this quarter. |
 | Metric bonus | Sidebar | {c["metric_bonus"]:g} | Set to 1 to remove the proactive advantage. |
+| Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Whether leftover points are filled from lower categories or left unallocated. |
 | 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still qualifies as "Later" rather than "Not this quarter". |
 | Investigation rules | Sidebar | below {c["discovery_confidence_max"]:g}, at least {c["discovery_min_impact"]:g} | When an unknown warrants a time-boxed investigation. |
 | Severity and effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. |
@@ -485,12 +491,13 @@ except Exception as e:
 split = capacity_split(scored, config)
 diff = diff_tags(ss.ai_tickets, working_tickets)
 
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Reactive (customer requests)", f"{split['reactive_pct']}%", f"{split['reactive_points']:g} pts")
-m2.metric("Proactive (team initiatives)", f"{split['proactive_pct']}%", f"{split['proactive_points']:g} pts")
-m3.metric("Points allocated", f"{split['committed_points']:g} of {split['capacity_points']:g}", f"{split['headroom_points']:g} unallocated")
-m4.metric("Reactive by ticket count", f"{split['reactive_in_backlog_pct']}%")
-m5.metric("Proposals you changed", len(diff), f"{diff['request_id'].nunique()} tickets" if len(diff) else None)
+m1, m2, m3, m4, m5, m6 = st.columns(6)
+m1.metric("Reactive (customer requests)", f"{split['reactive_pct']}%  ·  {split['reactive_points']:g} pts")
+m2.metric("Proactive (team initiatives)", f"{split['proactive_pct']}%  ·  {split['proactive_points']:g} pts")
+m3.metric("Points allocated", f"{split['committed_points']:g} of {split['capacity_points']:g}")
+m4.metric("Unallocated", f"{split['headroom_points']:g} pts")
+m5.metric("Reactive by ticket count", f"{split['reactive_in_backlog_pct']}%")
+m6.metric("Proposals you changed", f"{len(diff)}" + (f" on {diff['request_id'].nunique()} tickets" if len(diff) else ""))
 
 st.subheader("Rationale for the split")
 st.markdown(explain_split(scored, clusters_scored, split, config, working_tickets, working_clusters))

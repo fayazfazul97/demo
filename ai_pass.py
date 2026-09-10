@@ -177,14 +177,30 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, syst
     )
     resp = client.messages.create(
         model=model,
-        max_tokens=8000,
+        max_tokens=int(os.environ.get("BET_SCORER_MAX_TOKENS", "20000")),
         system=system_prompt,
         tools=[TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": TOOL_NAME},
         messages=[{"role": "user", "content": user_msg}],
     )
-    tool_block = next(b for b in resp.content if b.type == "tool_use")
+    if resp.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "The model's output was cut off by the token limit before the JSON was complete. "
+            "Raise BET_SCORER_MAX_TOKENS (currently "
+            f"{os.environ.get('BET_SCORER_MAX_TOKENS', '20000')}) or shorten the backlog."
+        )
+    tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
+    if tool_block is None:
+        text = " ".join(getattr(b, "text", "") for b in resp.content)[:300]
+        raise RuntimeError(f"The model did not return the structured output. It said: {text!r}")
     payload = tool_block.input
+    missing = [k for k in ("tickets", "clusters", "accounts", "cross_record_observations") if k not in payload]
+    if missing:
+        raise RuntimeError(
+            f"The model's output is missing {', '.join(missing)} (stop_reason={resp.stop_reason}, "
+            f"keys returned: {sorted(payload.keys())}). Try running again; if it repeats, the prompt edit may have "
+            "confused the output format."
+        )
     payload = validate_payload(payload, df)
     return {
         "source": "api",
@@ -199,8 +215,11 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, syst
 
 def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
     """Light checks: every ticket present once, cluster ids consistent."""
+    payload.setdefault("clusters", [])
+    payload.setdefault("cross_record_observations", [])
+    payload.setdefault("accounts", [])
     ids = list(df["request_id"])
-    got = [t["request_id"] for t in payload["tickets"]]
+    got = [t.get("request_id") for t in payload.get("tickets", [])]
     missing = [i for i in ids if i not in got]
     extra = [i for i in got if i not in ids]
     if missing or extra:

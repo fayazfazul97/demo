@@ -72,7 +72,8 @@ cross_record_observations
 
 accounts
 - You have no prior knowledge of these accounts. Derive each account's tier ONLY from what the summaries and raw_notes in this backlog say (phrases like "top-5 by GMV", "enterprise tier", "mid-market", "small regional, low GMV"). Return one entry per distinct source_account, copying source_account exactly as it appears in the data (same spelling, spacing and capitalisation, no abbreviation), with a tier of "top", "enterprise", "mid", "small", "internal", or "unknown", and quote the evidence. Use "unknown" when the notes give no tier signal; do not guess from the account name. Treat "Internal" (or any source that is the product team itself) as "internal".
-- Also suggest a weight from 1 to 5 for how much that account should count when ranking work. Guide: 5 for top or enterprise accounts, 3 for mid-market, 1 for small, 3 for internal and for unknown. If the notes give a reason to move off the guide (for example a mid-size account flagged as a churn risk, or a small account with unusual reputational exposure), move, and say why in weight_reason. Do not describe a possible move without making it.
+- Also give a weight from 1 to 5 for the account's size. This is the revenue tier and nothing else: 5 for top or enterprise, 3 for mid-market, 1 for small, 3 for internal and for unknown. Do NOT adjust it for churn risk, escalations, growth, executive involvement or reputational exposure. Those belong to specific tickets and are captured by severity (a ticket tied to a churn-risk signal is high severity; a ticket that is not tied to it is not). Adjusting size for them would count the same fact twice. In weight_reason, state the tier and the phrase it came from.
+- Separately, mark an account "strategic": true when the notes show it matters beyond its current revenue tier: fast growth that will outstrip the tier, a reference or lighthouse customer, a regulatory or partnership relationship, or a market the company is entering. This is account-level and forward-looking. Churn risk, escalations and executive involvement do NOT make an account strategic; they are per-ticket and belong in severity. Quote the phrase in strategic_reason; if there is no such signal, false with an empty reason.
 
 Be specific and terse in every reason. Cite request_ids when you link tickets."""
 
@@ -89,13 +90,15 @@ TOOL_SCHEMA = {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["source_account", "tier", "evidence", "suggested_weight", "weight_reason"],
+                    "required": ["source_account", "tier", "evidence", "suggested_weight", "weight_reason", "strategic", "strategic_reason"],
                     "properties": {
                         "source_account": {"type": "string", "description": "Exactly as it appears in the data."},
                         "tier": {"type": "string", "enum": ["top", "enterprise", "mid", "small", "internal", "unknown"]},
                         "evidence": {"type": "string", "description": "The phrase(s) and request_ids the tier was read from."},
                         "suggested_weight": {"type": "integer", "minimum": 1, "maximum": 5, "description": "How much this account should count, 1 to 5."},
                         "weight_reason": {"type": "string", "description": "One line on why this weight."},
+                        "strategic": {"type": "boolean", "description": "Matters beyond its revenue tier (growth, reference, regulatory, market entry)."},
+                        "strategic_reason": {"type": "string", "description": "The phrase that shows it, or empty."},
                     },
                 },
             },
@@ -264,6 +267,8 @@ def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
     for a in payload["accounts"]:
         a.setdefault("suggested_weight", {"top": 5, "enterprise": 5, "mid": 3, "small": 1}.get(a.get("tier"), 3))
         a.setdefault("weight_reason", f"guide value for tier '{a.get('tier')}'")
+        a.setdefault("strategic", False)
+        a.setdefault("strategic_reason", "")
     cluster_ids = {c["cluster_id"] for c in payload["clusters"]}
     for t in payload["tickets"]:
         if t.get("cluster_id") and t["cluster_id"] not in cluster_ids:

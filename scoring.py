@@ -26,15 +26,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Effort hint -> story points. "unclear" gets a discovery spike, not a guess.
     "effort_points": {"small": 1, "1-2 sprints": 3, "large": 8, "unclear": 1},
     "severity_scale": {"low": 1, "medium": 2, "high": 3},
-    # Proactive items that name a company metric get this multiplier.
-    "metric_bonus": 1.5,
+    # Proactive items that name a company metric get this multiplier. It rewards
+    # measurability, not urgency (urgency is already in severity). Off by
+    # default (1.0); raise it to favour proposals with a named metric.
+    "metric_bonus": 1.0,
     # Score thresholds. Defer band is [threshold * defer_ratio, threshold).
     "do_now_threshold": 3.0,
     "defer_ratio": 0.5,
-    # Discovery spikes are only opened when confidence is below this AND the
-    # (cluster) impact is at least discovery_min_impact. Otherwise an unknown
-    # cause on a small account just gets scored on what we know.
-    "discovery_confidence_max": 0.5,
+    # Unknown effort is never scored as if it were known. An "unclear" item
+    # goes to Investigate first when its (cluster) impact is at least this,
+    # otherwise to Not this quarter.
     "discovery_min_impact": 3,
     # Story points the team can commit next quarter (assumption: 5 people,
     # 6 two-week sprints, ~5 points per sprint after support load).
@@ -57,7 +58,7 @@ BUCKET_HELP = {
     "Do now": "Scores at or above the priority threshold and fits within this quarter's capacity.",
     "Investigate first": "Effort is unclear and confidence is low, but the impact justifies a short, time-boxed investigation before estimating.",
     "Later": "Close to the threshold. Deferred; revisit if capacity frees up or the facts change.",
-    "Not this quarter": "Scores well below the threshold. Declined for this cycle, with the reason communicated to the account.",
+    "Not this quarter": "Scores well below the threshold, or effort is unknown and the impact does not justify an investigation. Declined for this cycle, with the reason communicated to the account.",
     "Hand off": "Not engineering work: a configuration change, a data cleanup, or a process. Reassigned to the owning team.",
 }
 
@@ -163,7 +164,11 @@ def score_backlog(
                 conf = float(members["confidence"].mean())
                 label = key
         breadth = len(ids)
-        cluster_impact = float(members["raw_impact"].sum())
+        # Handed-off members are resolved by someone else, so they add no
+        # impact to the engineering fix and carry none of its cost.
+        active = members[~members["redirect"]]
+        n_active = max(1, len(active))
+        cluster_impact = float(active["raw_impact"].sum()) if len(active) else float(members["raw_impact"].sum())
         cost = float(ep.get(effort_bucket, ep["unclear"]))
         score = cluster_impact * conf / cost
         cluster_rows.append(
@@ -185,7 +190,7 @@ def score_backlog(
             t.loc[idx, "impact"] = cluster_impact
             t.loc[idx, "eff_confidence"] = conf
             t.loc[idx, "cost_points"] = cost
-            t.loc[idx, "cost_share"] = cost / breadth
+            t.loc[idx, "cost_share"] = 0.0 if bool(t.loc[idx, "redirect"]) else cost / n_active
             t.loc[idx, "eff_effort_bucket"] = effort_bucket
             t.loc[idx, "score"] = score
 
@@ -259,12 +264,9 @@ def score_backlog(
 def _bucket(r, cfg) -> str:
     if r["redirect"]:
         return "Hand off"
-    if (
-        r["eff_effort_bucket"] == "unclear"
-        and r["eff_confidence"] < cfg["discovery_confidence_max"]
-        and r["impact"] >= cfg["discovery_min_impact"]
-    ):
-        return "Investigate first"
+    if r["eff_effort_bucket"] == "unclear":
+        # Unknown effort is never scored as if it were known.
+        return "Investigate first" if r["impact"] >= cfg["discovery_min_impact"] else "Not this quarter"
     if r["score"] >= cfg["do_now_threshold"]:
         return "Do now"
     if r["score"] >= cfg["do_now_threshold"] * cfg["defer_ratio"]:

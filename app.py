@@ -61,8 +61,9 @@ ss.setdefault("system_prompt", ai_pass.SYSTEM_PROMPT)
 ss.setdefault("graph_seq", 0)
 
 
-def graph_payload(tickets: pd.DataFrame, clusters: pd.DataFrame, scored: pd.DataFrame | None) -> tuple[list, list]:
+def graph_payload(tickets: pd.DataFrame, clusters: pd.DataFrame, scored: pd.DataFrame | None, strategic: dict | None = None) -> tuple[list, list]:
     """Nodes and links for the cluster map, built from the reviewer's working tables."""
+    strategic = strategic or {}
     score_by = {}
     bucket_by = {}
     if scored is not None:
@@ -84,7 +85,8 @@ def graph_payload(tickets: pd.DataFrame, clusters: pd.DataFrame, scored: pd.Data
                       "summary": txt(t.get("summary")), "severity": txt(t.get("severity")), "confidence": float(t.get("confidence") or 0),
                       "effort": txt(t.get("effort_bucket")), "redirect": bool(t.get("redirect")), "metric_linked": bool(t.get("metric_linked")),
                       "reason": txt(t.get("reason")), "flag": txt(t.get("ambiguity_note")), "note": txt(t.get("reviewer_note")),
-                      "cluster": txt(t.get("cluster_id"))})
+                      "cluster": txt(t.get("cluster_id")), "strategic": bool(strategic.get(txt(t.get("source_account")), False)),
+                      "clustered": bool(t["classification"] == "reactive" and str(t.get("cluster_id") or "").strip() in cluster_ids)})
         cid = str(t.get("cluster_id") or "").strip()
         if t["classification"] == "reactive" and cid and cid in cluster_ids:
             links.append({"source": t["request_id"], "target": cid, "kind": "member"})
@@ -551,13 +553,14 @@ ss._pending_tickets = working_tickets
 
 # ---- 3d cluster map ----
 st.subheader("3d. Cluster map")
-st.caption("The same clusters and tickets as the tables above, as a map. Click a node for its details. Scroll to zoom, drag the background to pan, drag nodes to rearrange. "
+st.caption("The same clusters and tickets as the tables above, as a map. Tickets with no line to a cluster are unclustered (scored on their own) and gather on the left; proactive items are unclustered by definition. "
+           "A gold dashed ring marks a ticket from a strategic account. Click a node for its details. Scroll to zoom, drag the background to pan, drag nodes to rearrange. "
            + ("Locked while finalised." if locked else "Drag a reactive ticket onto a cluster to assign it, drag a proactive ticket onto a reactive one to mark it as eliminated, click a line to remove it, double-click empty space to add a cluster. Edits update the tables."))
 try:
     _preview_scored, _ = score_backlog(working_tickets, working_clusters, config)
 except Exception:
     _preview_scored = None
-g_nodes, g_links = graph_payload(working_tickets, working_clusters, _preview_scored)
+g_nodes, g_links = graph_payload(working_tickets, working_clusters, _preview_scored, config.get("account_strategic"))
 graph_val = _cluster_graph(nodes=g_nodes, links=g_links, locked=locked, height=640, key="cluster_graph", default=None)
 if graph_val and not locked and int(graph_val.get("seq", 0)) > int(ss.graph_seq):
     ss.graph_seq = int(graph_val["seq"])
@@ -568,9 +571,12 @@ if graph_val and not locked and int(graph_val.get("seq", 0)) > int(ss.graph_seq)
 
 if len(working_clusters):
     counts = working_tickets["cluster_id"].fillna("").astype(str).value_counts()
-    lonely = [c for c in working_clusters["cluster_id"].astype(str) if counts.get(c, 0) < 2]
+    empty = [c for c in working_clusters["cluster_id"].astype(str) if counts.get(c, 0) == 0]
+    lonely = [c for c in working_clusters["cluster_id"].astype(str) if counts.get(c, 0) == 1]
+    if empty:
+        st.warning(f"Clusters with no tickets attached: {', '.join(empty)}. They contribute nothing to the score. Drag tickets onto them on the map, pick them in the tickets table, or remove them.")
     if lonely:
-        st.caption(f"Clusters with fewer than two tickets (scored as single tickets until more are assigned): {', '.join(lonely)}")
+        st.caption(f"Clusters with only one ticket (scored as a single ticket until more are assigned): {', '.join(lonely)}")
 unknown = sorted(set(working_tickets["cluster_id"].fillna("").astype(str)) - set(cluster_ids))
 if unknown:
     st.warning(f"Some tickets reference clusters that no longer exist: {', '.join(unknown)}. They will be scored on their own values.")

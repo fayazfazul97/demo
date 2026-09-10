@@ -134,6 +134,8 @@ def build_accounts_df(accounts: list[dict]) -> pd.DataFrame:
         rows.append(dict(
             account=acct, size_clue=tier, evidence=a.get("evidence", "no note found"),
             suggested_weight=sugg, weight=float(sugg), reason=a.get("weight_reason", ""),
+            model_strategic=bool(a.get("strategic", False)), strategic=bool(a.get("strategic", False)),
+            strategic_reason=a.get("strategic_reason", ""),
         ))
     return pd.DataFrame(rows)
 
@@ -150,6 +152,7 @@ def load_proposal(blob: dict) -> None:
     ss.clusters = cl.copy()
     ss.accounts_df = build_accounts_df(blob["result"].get("accounts", []))
     ss.config["account_weight"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["weight"]))
+    ss.config["account_strategic"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["strategic"]))
     ss.finalized = False
     _clear("ticket_editor", "cluster_editor", "account_editor")
 
@@ -191,6 +194,8 @@ with st.sidebar:
     cfg = ss.config
     cfg["do_now_threshold"] = st.slider("Priority threshold (score required for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
     cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (effort points)", 1, 200, int(cfg["quarter_capacity_points"]))
+    cfg["strategic_multiplier"] = st.slider("Strategic account multiplier (1.0 = off)", 1.0, 2.0, float(cfg["strategic_multiplier"]), 0.05,
+                                            help="Applied to the impact of every ticket from an account marked strategic in step 3a.")
     cfg["metric_bonus"] = st.slider("Bonus for proactive items with a named metric (1.0 = off)", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
     fill_labels = {"later": "Pull from Later", "later_and_declined": "Pull from Later and Not this quarter", "off": "Leave unallocated"}
     cfg["fill_spare_capacity"] = st.selectbox("Spare capacity", list(fill_labels), key="fill_mode",
@@ -210,13 +215,16 @@ with st.sidebar:
         for k in list(ss.keys()):
             if k.startswith(("ep_", "sv_")) or k == "fill_mode":
                 del ss[k]
-        aw = dict(ss.config["account_weight"])
+        aw = dict(ss.config["account_weight"]); strat = dict(ss.config.get("account_strategic", {}))
         ss.config = copy.deepcopy(DEFAULT_CONFIG)
         if ss.accounts_df is not None:
             ss.accounts_df["weight"] = ss.accounts_df["suggested_weight"].astype(float)
+            ss.accounts_df["strategic"] = ss.accounts_df["model_strategic"].astype(bool)
             aw = dict(zip(ss.accounts_df["account"], ss.accounts_df["weight"]))
+            strat = dict(zip(ss.accounts_df["account"], ss.accounts_df["strategic"]))
             _clear("account_editor")
         ss.config["account_weight"] = aw
+        ss.config["account_strategic"] = strat
         st.rerun()
 
 config = merged_config(ss.config)
@@ -256,7 +264,7 @@ Every ticket receives a single score. Higher means higher priority.
 
 **score = impact × confidence ÷ effort**
 
-- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity. Severity is a multiplier, not a unit of work: low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}. Note the ranges: account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one. That is a deliberate bias towards revenue at risk; widen the severity scale in the sidebar if you want severity to carry more.
+- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity{" × " + format(c["strategic_multiplier"], "g") + " for strategic accounts" if c["strategic_multiplier"] != 1 else ""}. Account size is the revenue tier only. A **strategic** account is one that matters beyond its tier (fast growth, reference customer, regulatory or partnership relationship, market entry): an account-level, forward-looking fact, proposed by the model and editable in step 3. Churn risk, escalations and executive involvement are per-ticket facts and are captured by severity, so they are never folded into size or the strategic flag. Severity is a multiplier, not a unit of work: low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}. Note the ranges: account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one. That is a deliberate bias towards revenue at risk; widen the severity scale in the sidebar if you want severity to carry more.
 - **Confidence** is 0 to 1: how well do we know the cause and the fix?
 - **Effort** is in points of work: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. The team's rough_effort_hint is taken as the estimate and trusted by default; the model overrides it only when something specific in the ticket contradicts it, and every override is flagged for review. "Unclear" is never scored as if it were known: it goes to Investigate first (costing {c["effort_points"]["unclear"]:g} point) or, if the impact is too small to justify that, to Not this quarter. "Large" counts as this quarter's slice of a multi-quarter build. Team capacity is measured in these same effort points, so allocation is simply adding effort until capacity is reached.
 
@@ -278,6 +286,7 @@ Capacity is then allocated: "Do now" items are taken in score order until {cur("
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
+| Strategic multiplier | Sidebar | {c["strategic_multiplier"]:g} | Applied to every ticket from an account marked strategic in step 3a. Off at 1.0. |
 | Account size | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
 | Priority threshold | Sidebar | {cur("do_now_threshold")} | The quality floor. Lower it and more qualifies, usually more proactive work. |
 | Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter, same unit as effort. The default assumes five people, six two-week sprints, about five points per sprint after support load. |
@@ -420,15 +429,20 @@ else:
 
 # ---- 3a accounts ----
 st.subheader("3a. Account size")
-st.caption("The model read the notes for size indicators and proposed an account size from 1 (small) to 5 (top). Edit the account size column if you disagree.")
+st.caption("The model read the notes for size indicators and proposed an account size from 1 (small) to 5 (top). Size is the revenue tier only. "
+           "Separately, an account can be marked strategic when it matters beyond its tier (fast growth, reference customer, regulatory or partnership relationship, market entry); "
+           f"its tickets' impact is multiplied by {config['strategic_multiplier']:g} (sidebar). Churn risk and escalations are per-ticket and handled by severity. Edit either column if you disagree.")
 acc_editor = st.data_editor(
     ss.accounts_df,
     key="account_editor",
-    disabled=locked or ["account", "size_clue", "evidence", "suggested_weight", "reason"],
+    disabled=locked or ["account", "size_clue", "evidence", "suggested_weight", "reason", "model_strategic", "strategic_reason"],
     hide_index=True,
     width="stretch",
-    column_order=["account", "size_clue", "suggested_weight", "weight", "reason", "evidence"],
+    column_order=["account", "size_clue", "suggested_weight", "weight", "model_strategic", "strategic", "strategic_reason", "reason", "evidence"],
     column_config={
+        "model_strategic": st.column_config.CheckboxColumn("model: strategic", width="small"),
+        "strategic": st.column_config.CheckboxColumn("strategic (edit)", width="small"),
+        "strategic_reason": st.column_config.TextColumn("strategic reason", width="medium"),
         "account": st.column_config.TextColumn("account", width="medium"),
         "size_clue": st.column_config.TextColumn("size per notes", width="small"),
         "suggested_weight": st.column_config.NumberColumn("model proposes", width="small"),
@@ -439,6 +453,7 @@ acc_editor = st.data_editor(
 )
 working_accounts = ss.accounts_df if locked else acc_editor
 ss.config["account_weight"] = {a: float(w) for a, w in zip(working_accounts["account"], working_accounts["weight"].fillna(3.0))}
+ss.config["account_strategic"] = {a: bool(v) for a, v in zip(working_accounts["account"], working_accounts["strategic"].fillna(False))}
 config = merged_config(ss.config)
 
 # ---- 3b clusters ----

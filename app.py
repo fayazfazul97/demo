@@ -130,7 +130,7 @@ with st.sidebar:
     st.caption("The parameters behind the score. Change one and the results update. Account size is edited in step 3.")
     cfg = ss.config
     cfg["do_now_threshold"] = st.slider("Priority threshold (score required for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
-    cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (points)", 1, 200, int(cfg["quarter_capacity_points"]))
+    cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (effort points)", 1, 200, int(cfg["quarter_capacity_points"]))
     cfg["metric_bonus"] = st.slider("Bonus for proactive items linked to a company metric", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
     fill_labels = {"later": "Pull from Later", "later_and_declined": "Pull from Later and Not this quarter", "off": "Leave unallocated"}
     cfg["fill_spare_capacity"] = st.selectbox("Spare capacity", list(fill_labels), key="fill_mode",
@@ -140,10 +140,10 @@ with st.sidebar:
         cfg["defer_ratio"] = st.slider("'Later' band (share of the threshold)", 0.1, 1.0, float(cfg["defer_ratio"]), 0.05)
         cfg["discovery_confidence_max"] = st.slider("'Investigate first' when confidence is below", 0.0, 1.0, float(cfg["discovery_confidence_max"]), 0.05)
         cfg["discovery_min_impact"] = st.slider("...and impact is at least", 0.0, 20.0, float(cfg["discovery_min_impact"]), 0.5)
-        st.markdown("**Severity points**")
+        st.markdown("**Severity scale (multiplier, not work)**")
         for sv in SEVERITIES:
             cfg["severity_scale"][sv] = st.number_input(sv, 0.5, 10.0, float(cfg["severity_scale"][sv]), 0.5, key=f"sv_{sv}")
-        st.markdown("**Effort points**")
+        st.markdown("**Effort points (same unit as team capacity)**")
         for eb in EFFORT_BUCKETS:
             label = {"unclear": "unclear (cost of finding out)"}.get(eb, eb)
             cfg["effort_points"][eb] = st.number_input(label, 0.5, 20.0, float(cfg["effort_points"][eb]), 0.5, key=f"ep_{eb}")
@@ -197,9 +197,9 @@ Every ticket receives a single score. Higher means higher priority.
 
 **score = impact × confidence ÷ effort**
 
-- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity (low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}).
+- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity. Severity is a multiplier, not a unit of work: low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}.
 - **Confidence** is 0 to 1: how well do we know the cause and the fix?
-- **Effort** is in points: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. "Unclear" is not guessed; it costs {c["effort_points"]["unclear"]:g} point to find out.
+- **Effort** is in points of work: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. "Unclear" is not guessed; it costs {c["effort_points"]["unclear"]:g} point to find out. Team capacity is measured in these same effort points, so allocation is simply adding effort until capacity is reached.
 
 **Tickets that share one root cause are scored as a cluster.** Their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score. This is why clustering matters: one fix that closes three tickets is worth three tickets.
 
@@ -215,18 +215,18 @@ Every ticket receives a single score. Higher means higher priority.
 
 Capacity is then allocated: "Do now" items are taken in score order until {cur("quarter_capacity_points")} points are used (the team capacity, set under "Team capacity this quarter" in the sidebar). Anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled up into "Do now", so capacity is not left unused. Those items carry a "pulled up" note in the results.
 
-**The split** is the share of allocated points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
+**The split** is the share of allocated effort points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
 | Account size | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
 | Priority threshold | Sidebar | {cur("do_now_threshold")} | Lower it and more is prioritised, usually more proactive work. |
-| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Points available this quarter. The default assumes five people, six two-week sprints, about five points per sprint after support load. |
+| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter, same unit as effort. The default assumes five people, six two-week sprints, about five points per sprint after support load. |
 | Metric bonus | Sidebar | {c["metric_bonus"]:g} | Set to 1 to remove the proactive advantage. |
-| Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Whether leftover points are filled from lower categories or left unallocated. |
+| Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Whether leftover capacity is filled from lower categories or left unallocated. |
 | 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still qualifies as "Later" rather than "Not this quarter". |
 | Investigation rules | Sidebar | below {c["discovery_confidence_max"]:g}, at least {c["discovery_min_impact"]:g} | When an unknown warrants a time-boxed investigation. |
-| Severity and effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. |
+| Severity scale, effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. Severity is a multiplier; effort and capacity share a unit. |
 | Per-ticket tags | Step 3 | | Cluster, severity, confidence, effort, hand off, metric-linked, eliminates. The model proposes, you decide. |
 | Clusters | Step 3 | | Effort and confidence for the shared fix. Override the tickets' own values. |
 """)
@@ -502,13 +502,13 @@ diff = diff_tags(ss.ai_tickets, working_tickets)
 
 m1, m2, m3, m4, m5, m6 = st.columns(6)
 m1.metric("Reactive", f"{split['reactive_pct']}%")
-m1.caption(f"{split['reactive_points']:g} pts · customer requests")
+m1.caption(f"{split['reactive_points']:g} effort pts · customer requests")
 m2.metric("Proactive", f"{split['proactive_pct']}%")
-m2.caption(f"{split['proactive_points']:g} pts · team initiatives")
+m2.caption(f"{split['proactive_points']:g} effort pts · team initiatives")
 m3.metric("Allocated", f"{split['committed_points']:g}")
-m3.caption(f"of {split['capacity_points']:g} pts capacity")
+m3.caption(f"of {split['capacity_points']:g} effort pts capacity")
 m4.metric("Unallocated", f"{split['headroom_points']:g}")
-m4.caption("pts")
+m4.caption("effort pts")
 m5.metric("Reactive by count", f"{split['reactive_in_backlog_pct']}%")
 m5.caption("share of tickets, for comparison")
 m6.metric("Changed", f"{len(diff)}")
@@ -520,7 +520,7 @@ st.markdown(explain_split(scored, clusters_scored, split, config, working_ticket
 DISPLAY_COLS = {
     "request_id": "ticket", "source_account": "account", "classification": "type", "cluster_id": "cluster",
     "severity": "severity", "eff_confidence": "confidence", "eff_effort_bucket": "effort", "impact": "impact",
-    "cost_share": "points", "score": "score", "capacity_note": "note", "reason": "rationale",
+    "cost_share": "effort pts", "score": "score", "capacity_note": "note", "reason": "rationale",
 }
 
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import ai_pass
 from report import build_summary, explain_split, gaps_table, list_assumptions
@@ -37,6 +38,7 @@ from scoring import (
 
 DATA_PATH = Path(__file__).parent / "data" / "Inbound_Requests.csv"
 MAX_RUNS_PER_SESSION = 3
+_cluster_graph = components.declare_component("cluster_graph", path=str(Path(__file__).parent / "graph_component"))
 
 st.set_page_config(page_title="Backlog scorer", layout="wide")
 
@@ -56,6 +58,54 @@ ss.setdefault("finalized", False)
 ss.setdefault("config", copy.deepcopy(DEFAULT_CONFIG))
 ss.setdefault("ai_runs", 0)
 ss.setdefault("system_prompt", ai_pass.SYSTEM_PROMPT)
+ss.setdefault("graph_seq", 0)
+
+
+def graph_payload(tickets: pd.DataFrame, clusters: pd.DataFrame, scored: pd.DataFrame | None) -> tuple[list, list]:
+    """Nodes and links for the cluster map, built from the reviewer's working tables."""
+    score_by = {}
+    bucket_by = {}
+    if scored is not None:
+        score_by = dict(zip(scored["request_id"], scored["score"]))
+        bucket_by = dict(zip(scored["request_id"], scored["bucket"].astype(str)))
+    nodes, links = [], []
+    for _, c in clusters.iterrows():
+        nodes.append({"id": str(c["cluster_id"]), "label": str(c.get("label", "") or c["cluster_id"]), "type": "cluster"})
+    cluster_ids = {n["id"] for n in nodes}
+    for _, t in tickets.iterrows():
+        nodes.append({"id": t["request_id"], "type": "ticket", "classification": t["classification"], "account": t.get("source_account", ""),
+                      "score": float(score_by.get(t["request_id"], 0) or 0), "bucket": bucket_by.get(t["request_id"], "")})
+        cid = str(t.get("cluster_id") or "").strip()
+        if t["classification"] == "reactive" and cid and cid in cluster_ids:
+            links.append({"source": t["request_id"], "target": cid, "kind": "member"})
+        if t["classification"] == "proactive":
+            ret = t.get("retires")
+            ids = ret if isinstance(ret, list) else [x.strip() for x in str(ret or "").replace(";", ",").split(",") if x.strip()]
+            for rid in ids:
+                links.append({"source": t["request_id"], "target": rid, "kind": "retires"})
+    return nodes, links
+
+
+def apply_graph_edits(val: dict, tickets: pd.DataFrame, clusters: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Write the graph's memberships, eliminates links and new clusters back into the working tables."""
+    t = tickets.copy()
+    c = clusters.copy()
+    for nc in val.get("new_clusters", []):
+        cid = str(nc.get("cluster_id", "")).strip()
+        if cid and cid not in c["cluster_id"].astype(str).tolist():
+            c = pd.concat([c, pd.DataFrame([{"cluster_id": cid, "label": nc.get("label", cid), "ticket_ids": "",
+                                             "root_cause_hypothesis": "", "evidence": "added by reviewer on the map",
+                                             "effort_bucket": "1-2 sprints", "confidence": 0.5}])], ignore_index=True)
+    valid = set(c["cluster_id"].astype(str))
+    for tid, cid in val.get("memberships", {}).items():
+        mask = t["request_id"] == tid
+        if mask.any() and (t.loc[mask, "classification"] == "reactive").all():
+            t.loc[mask, "cluster_id"] = cid if cid in valid else ""
+    for pid, ids in val.get("retires", {}).items():
+        mask = t["request_id"] == pid
+        if mask.any():
+            t.loc[mask, "retires"] = ", ".join(ids)
+    return t, c
 
 
 def _clear(*keys: str) -> None:
@@ -270,7 +320,7 @@ if ss.backlog is None:
 
 bl = ss.backlog
 st.caption(f"{ss.backlog_name}: {len(bl)} tickets from {bl['source_account'].nunique()} sources. "
-           f"Effort hints read as: {dict(bl['effort_bucket'].value_counts())}.")
+           f"Effort hints read as: { {k: int(v) for k, v in bl['effort_bucket'].value_counts().items()} }.")
 with st.expander("The backlog"):
     st.dataframe(bl.drop(columns=["effort_bucket"]), width="stretch", hide_index=True)
 
@@ -473,6 +523,23 @@ tk_editor = st.data_editor(
 )
 working_tickets = ss.tickets if locked else tk_editor
 ss._pending_tickets = working_tickets
+
+# ---- 3d cluster map ----
+st.subheader("3d. Cluster map")
+st.caption("The same clusters and tickets as the tables above, as a map. Drag to rearrange. "
+           + ("Locked while finalised." if locked else "Drag a reactive ticket onto a cluster to assign it, drag a proactive ticket onto a reactive one to mark it as eliminated, click a line to remove it, double-click empty space to add a cluster. Edits update the tables."))
+try:
+    _preview_scored, _ = score_backlog(working_tickets, working_clusters, config)
+except Exception:
+    _preview_scored = None
+g_nodes, g_links = graph_payload(working_tickets, working_clusters, _preview_scored)
+graph_val = _cluster_graph(nodes=g_nodes, links=g_links, locked=locked, height=560, key="cluster_graph", default=None)
+if graph_val and not locked and int(graph_val.get("seq", 0)) > int(ss.graph_seq):
+    ss.graph_seq = int(graph_val["seq"])
+    new_t, new_c = apply_graph_edits(graph_val, working_tickets, working_clusters)
+    ss.tickets, ss.clusters = new_t, new_c
+    _clear("ticket_editor", "cluster_editor")
+    st.rerun()
 
 if len(working_clusters):
     counts = working_tickets["cluster_id"].fillna("").astype(str).value_counts()

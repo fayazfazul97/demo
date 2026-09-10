@@ -4,35 +4,36 @@
 <meta charset="utf-8" />
 <script src="d3.min.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; background: transparent; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #ddd; }
+  :root { --text: #31333f; --muted: #6b6f7a; --panel: rgba(128,128,128,0.10); --btnbg: rgba(255,255,255,0.9); --btnfg: #31333f; --btnbd: #bbb; --label: #31333f; --clabel: #222; --linkc: #777; }
+  html, body { margin: 0; padding: 0; background: transparent; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
   #wrap { position: relative; }
-  .hint { font-size: 12px; color: #888; padding: 6px 2px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-  .hint b { color: #aaa; font-weight: 600; }
+  .hint { font-size: 12px; color: var(--muted); padding: 6px 2px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .hint b { color: var(--text); font-weight: 600; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
   .sq { border-radius: 2px; }
   #row { display: flex; gap: 10px; align-items: stretch; }
   #graphbox { position: relative; flex: 1 1 auto; min-width: 0; }
   svg { width: 100%; display: block; border-radius: 8px; background: rgba(128,128,128,0.06); cursor: grab; }
   svg:active { cursor: grabbing; }
-  #panel { flex: 0 0 300px; max-width: 300px; font-size: 12px; background: rgba(128,128,128,0.08); border-radius: 8px; padding: 10px 12px; overflow: auto; }
-  #panel h4 { margin: 0 0 6px 0; font-size: 13px; color: #eee; }
+  #panel { flex: 0 0 260px; max-width: 260px; font-size: 12px; background: var(--panel); border-radius: 8px; padding: 10px 12px; overflow: auto; }
+  #panel h4 { margin: 0 0 6px 0; font-size: 13px; color: var(--text); }
   #panel .kv { display: grid; grid-template-columns: 90px 1fr; gap: 3px 8px; margin-bottom: 8px; }
-  #panel .k { color: #888; }
-  #panel p { margin: 4px 0 8px 0; line-height: 1.35; color: #ccc; }
-  #panel .lbl { color: #888; font-size: 11px; margin-top: 8px; }
-  #panel .empty { color: #777; }
+  #panel .k { color: var(--muted); }
+  #panel p { margin: 4px 0 8px 0; line-height: 1.35; color: var(--text); }
+  #panel .lbl { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  #panel .empty { color: var(--muted); }
   #zoomctl { position: absolute; top: 8px; left: 8px; display: flex; gap: 4px; }
-  #zoomctl button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid #555; background: rgba(40,40,40,0.9); color: #ddd; cursor: pointer; font-size: 14px; line-height: 1; }
+  #zoomctl button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--btnbd); background: var(--btnbg); color: var(--btnfg); cursor: pointer; font-size: 14px; line-height: 1; }
   #zoomctl button.wide { width: auto; padding: 0 8px; font-size: 11px; }
   #toast { position: absolute; top: 8px; right: 12px; font-size: 12px; background: rgba(40,40,40,0.9); color: #eee; padding: 6px 10px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .node { cursor: pointer; }
-  .node text { font-size: 10px; fill: #ddd; pointer-events: none; }
-  .cluster text { font-size: 11px; font-weight: 600; fill: #eee; }
-  .link { stroke: #999; stroke-opacity: 0.6; stroke-width: 1.5px; cursor: pointer; }
+  .node text { font-size: 13px; fill: var(--label); pointer-events: none; }
+  .cluster text { font-size: 14px; font-weight: 600; fill: var(--clabel); }
+  .link { stroke: var(--linkc); stroke-opacity: 0.7; stroke-width: 1.5px; cursor: pointer; }
   .link.retires { stroke: #e6a23c; stroke-dasharray: 4 3; }
   .link:hover { stroke: #ff5c5c; stroke-width: 3px; stroke-opacity: 1; }
   .drop-target { stroke: #4ade80 !important; stroke-width: 3px !important; }
-  .selected circle, .selected rect { stroke: #fff !important; stroke-width: 3px !important; }
+  .selected circle, .selected rect { stroke: var(--text) !important; stroke-width: 3px !important; }
   .locked .link { cursor: default; }
 </style>
 </head>
@@ -50,7 +51,7 @@
   <div id="row">
     <div id="graphbox">
       <svg id="g"></svg>
-      <div id="zoomctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zreset" class="wide" title="Reset view">reset</button></div>
+      <div id="zoomctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zreset" class="wide" title="Fit to view">fit</button></div>
       <div id="toast"></div>
     </div>
     <div id="panel"><div class="empty">Click a ticket or cluster to see its details.</div></div>
@@ -161,17 +162,30 @@
     svg.call(zoom).on("dblclick.zoom", null);
     d3.select("#zin").on("click", () => svg.transition().duration(200).call(zoom.scaleBy, 1.3));
     d3.select("#zout").on("click", () => svg.transition().duration(200).call(zoom.scaleBy, 1 / 1.3));
-    d3.select("#zreset").on("click", () => svg.transition().duration(250).call(zoom.transform, d3.zoomIdentity));
+    d3.select("#zreset").on("click", fitToView);
 
-    sim = d3.forceSimulation(state.nodes).alphaDecay(0.05).velocityDecay(0.5)
-      .force("link", d3.forceLink(state.links).id(d => d.id).distance(l => l.kind === "member" ? 55 : 80).strength(0.6))
-      .force("charge", d3.forceManyBody().strength(-160))
-      .force("collide", d3.forceCollide().radius(n => radius(n) + 6))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("x", d3.forceX(width / 2).strength(0.03))
-      .force("y", d3.forceY(height / 2).strength(0.03));
+    // Layout: clusters repel strongly so each one sits in its own space with
+    // its members around it; unclustered tickets drift to the outside.
+    sim = d3.forceSimulation(state.nodes).alphaDecay(0.04).velocityDecay(0.5)
+      .force("link", d3.forceLink(state.links).id(d => d.id)
+        .distance(l => l.kind === "member" ? 80 : 150).strength(l => l.kind === "member" ? 0.9 : 0.15))
+      .force("charge", d3.forceManyBody().strength(n => n.type === "cluster" ? -2200 : -220).distanceMax(500))
+      .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? 70 : radius(n) + 16).strength(0.9))
+      .force("x", d3.forceX(width / 2).strength(0.04))
+      .force("y", d3.forceY(height / 2).strength(0.06));
+    sim.on("end", fitToView);
     rebuild();
     if (selectedId && byId(selectedId)) showDetails(byId(selectedId)); else showDetails(null);
+  }
+
+  function fitToView() {
+    if (!state.nodes.length || !zoom) return;
+    const xs = state.nodes.map(n => n.x), ys = state.nodes.map(n => n.y);
+    const x0 = Math.min(...xs) - 50, x1 = Math.max(...xs) + 50, y0 = Math.min(...ys) - 40, y1 = Math.max(...ys) + 50;
+    const width = document.getElementById("graphbox").clientWidth || 800, height = state.height;
+    const k = Math.max(0.6, Math.min(1.3, 0.96 / Math.max((x1 - x0) / width, (y1 - y0) / height)));
+    const tx = (width - k * (x0 + x1)) / 2, ty = (height - k * (y0 + y1)) / 2;
+    svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
   }
 
   function rebuild() {
@@ -199,7 +213,7 @@
       .attr("fill", "#8e7cc3").attr("stroke", "#c7b8ff").attr("stroke-width", 1.5);
     enter.append("title").text(n => n.type === "cluster" ? (n.label || n.id) : `${n.id} · ${n.account || ""}\n${n.classification || ""} · ${n.bucket || ""} · score ${n.score != null ? n.score.toFixed(2) : ""}`);
     enter.append("text").attr("dy", n => n.type === "cluster" ? 34 : radius(n) + 11).attr("text-anchor", "middle")
-      .text(n => n.type === "cluster" ? (n.label || n.id).slice(0, 22) : n.id.replace(/^TRQ-/, ""));
+      .text(n => n.type === "cluster" ? n.id : n.id.replace(/^TRQ-/, ""));
     enter.on("click", (ev, n) => { ev.stopPropagation(); showDetails(n); });
     gNodes = enter.merge(gNodes);
     gNodes.classed("selected", d => d.id === selectedId);
@@ -265,6 +279,15 @@
     const d = ev.data;
     if (!d || d.type !== "streamlit:render") return;
     const a = d.args || {};
+    const th = d.theme || {};
+    if (th.textColor) {
+      const r = document.documentElement.style, dark = (th.base === "dark");
+      r.setProperty("--text", th.textColor); r.setProperty("--label", th.textColor); r.setProperty("--clabel", th.textColor);
+      r.setProperty("--muted", dark ? "#a3a8b4" : "#6b6f7a");
+      r.setProperty("--panel", th.secondaryBackgroundColor || (dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"));
+      r.setProperty("--btnbg", th.secondaryBackgroundColor || (dark ? "#333" : "#f2f2f2")); r.setProperty("--btnfg", th.textColor); r.setProperty("--btnbd", dark ? "#555" : "#ccc");
+      r.setProperty("--linkc", dark ? "#aaa" : "#777");
+    }
     state = { nodes: (a.nodes || []).map(n => Object.assign({}, n)), links: (a.links || []).map(l => Object.assign({}, l)), locked: !!a.locked, height: a.height || 560 };
     render();
     setHeight(document.body.scrollHeight + 8);

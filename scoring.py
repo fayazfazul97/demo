@@ -23,6 +23,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # TIER_WEIGHTS maps tier -> weight, and the reviewer can override any of
     # them in the sidebar. GMV is never in the data, so this is an assumption.
     "account_weight": {"Internal": 3},
+    # Strategic accounts: importance beyond the current revenue tier (fast
+    # growth, reference customer, regulatory or partnership relationship,
+    # market entry). Account-level and forward-looking. Not churn risk or
+    # escalation, which are per-ticket and live in severity.
+    "account_strategic": {},
+    "strategic_multiplier": 1.25,
     # Effort hint -> story points. "unclear" gets a discovery spike, not a guess.
     "effort_points": {"small": 1, "1-2 sprints": 3, "large": 8, "unclear": 1},
     "severity_scale": {"low": 1, "medium": 2, "high": 3},
@@ -127,9 +133,13 @@ def score_backlog(
     t["metric_linked"] = t["metric_linked"].fillna(False).astype(bool)
 
     # Per-ticket raw impact: account weight x severity. Internal weight for proactive.
+    strategic = cfg.get("account_strategic", {}) or {}
+    smult = float(cfg.get("strategic_multiplier", 1.0))
+
     def raw_impact(row):
         acct = "Internal" if row["classification"] == "proactive" else row["source_account"]
-        return aw.get(acct, aw["Internal"]) * sev.get(row["severity"], 2)
+        base = aw.get(acct, aw["Internal"]) * sev.get(row["severity"], 2)
+        return base * (smult if strategic.get(acct) else 1.0)
 
     t["raw_impact"] = t.apply(raw_impact, axis=1)
 

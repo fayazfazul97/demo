@@ -259,46 +259,85 @@ with st.expander("How the score works"):
         v, dv = c[key], d[key]
         return fmt.format(v) if v == dv else f"{fmt.format(v)} (default {fmt.format(dv)})"
 
+    sev = c["severity_scale"]; ep = c["effort_points"]
+    strat_txt = f" × {c['strategic_multiplier']:g} for strategic accounts" if c["strategic_multiplier"] != 1 else ""
+    bonus_txt = f" × {c['metric_bonus']:g} if it names a company metric" if c["metric_bonus"] != 1 else ""
+
     st.markdown(f"""
-Every ticket receives a single score. Higher means higher priority.
+*Numbers below are the current settings. Where one has been changed, the default is shown in brackets. All of them live in the sidebar except account size and the strategic flag, which are in step 3a.*
 
-*The numbers below are the current settings. Each can be changed in the sidebar; where a value has been changed, the default is shown in brackets.*
+#### 1. Every ticket gets one score
 
-**score = impact × confidence ÷ effort**
+```
+score = impact × confidence ÷ effort
+```
 
-- **Impact** = account size (1 to 5, suggested by the model, editable in step 3) × severity{" × " + format(c["strategic_multiplier"], "g") + " for strategic accounts" if c["strategic_multiplier"] != 1 else ""}. Account size is the revenue tier only. A **strategic** account is one that matters beyond its tier (fast growth, reference customer, regulatory or partnership relationship, market entry): an account-level, forward-looking fact, proposed by the model and editable in step 3. Churn risk, escalations and executive involvement are per-ticket facts and are captured by severity, so they are never folded into size or the strategic flag. Severity is a multiplier, not a unit of work: low {c["severity_scale"]["low"]:g}, medium {c["severity_scale"]["medium"]:g}, high {c["severity_scale"]["high"]:g}. Note the ranges: account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one. That is a deliberate bias towards revenue at risk; widen the severity scale in the sidebar if you want severity to carry more.
-- **Confidence** is 0 to 1: how well do we know the cause and the fix?
-- **Effort** is in points of work: small {c["effort_points"]["small"]:g}, 1-2 sprints {c["effort_points"]["1-2 sprints"]:g}, large {c["effort_points"]["large"]:g}. The team's rough_effort_hint is taken as the estimate and trusted by default; the model overrides it only when something specific in the ticket contradicts it, and every override is flagged for review. "Unclear" is never scored as if it were known: it goes to Investigate first (costing {c["effort_points"]["unclear"]:g} point) or, if the impact is too small to justify that, to Not this quarter. "Large" counts as this quarter's slice of a multi-quarter build. Team capacity is measured in these same effort points, so allocation is simply adding effort until capacity is reached.
+Higher score, higher priority.
 
-**Tickets that share one root cause are scored as a cluster.** Their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score. This is why clustering matters: one fix that closes three tickets is worth three tickets. A cluster member that has been handed off adds no impact and carries no cost, since the engineering fix is not what resolves it.
+| Term | What it is | Scale |
+|---|---|---|
+| **Impact** | account size × severity{strat_txt} | see below |
+| **Account size** | the account's revenue tier, and nothing else | 1 small · 3 mid · 5 top / enterprise |
+| **Severity** | how bad the problem is, judged on the figures in the notes, not the tone of the email | low {sev["low"]:g} · medium {sev["medium"]:g} · high {sev["high"]:g} (a multiplier, not work) |
+| **Strategic** | the account matters beyond its tier: fast growth, reference customer, regulatory or partnership relationship, market entry | × {c["strategic_multiplier"]:g} (1.0 = off) |
+| **Confidence** | how well the cause and the fix are understood | 0 to 1 |
+| **Effort** | the team's rough_effort_hint, trusted by default; the model overrides it only with a specific reason, and flags the override | small {ep["small"]:g} · 1-2 sprints {ep["1-2 sprints"]:g} · large {ep["large"]:g} effort points |
 
-**Proactive items** receive their own impact, plus the impact of every reactive ticket they would eliminate{" (times a " + format(c["metric_bonus"], "g") + "× bonus for items with a named metric)" if c["metric_bonus"] != 1 else ""}. That is how a structural fix can outrank a single loud request. It also makes the "eliminates" list the single biggest lever on the proactive share: it is a hypothesis about what the item would prevent, and the reviewer should treat it as one. The metric bonus is off by default because urgency is already captured in severity; turning it on rewards measurability.
+Two things to notice in that table. Account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one; that is a deliberate bias towards revenue at risk. And churn risk, escalations and executive involvement are per-ticket facts that live in severity; they are never folded into size or the strategic flag, so nothing is counted twice.
 
-**Each ticket is then assigned to one of five categories, checked in this order:**
+#### 2. Tickets that share one root cause are scored as a cluster
 
-1. **Hand off.** Not engineering work (configuration, data cleanup, process). Reassigned to the owning team. Excluded from capacity.
-2. **Investigate first.** Effort is unclear and impact is at least {c["discovery_min_impact"]:g}. A short, time-boxed investigation before estimating. Unclear effort with lower impact goes to Not this quarter.
-3. **Do now.** Score of {cur("do_now_threshold")} or more (the priority threshold, set in the sidebar).
-4. **Later.** Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more; deferred, revisited if capacity allows.
-5. **Not this quarter.** Everything else; declined for this cycle.
+- Their impact is added up.
+- The effort is counted once (the cluster's effort, taken from the members' hints).
+- Every ticket in the cluster gets the cluster's score and an equal share of its cost.
+- A member that has been handed off adds no impact and carries no cost.
 
-Capacity is then allocated: "Do now" items are taken in score order until {cur("quarter_capacity_points")} points are used (the team capacity, set under "Team capacity this quarter" in the sidebar). Anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled up into "Do now", so capacity is not left unused. Those items carry a "pulled up" note in the results and the rationale says they were funded on spare capacity, not on merit. This means the priority threshold is a quality floor, not the thing that decides funding: capacity decides funding, the threshold decides what is good enough to be pulled up.
+One fix that closes three tickets is worth three tickets. That is why clustering is the highest-leverage judgement in the review.
 
-**The split** is the share of allocated effort points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
+#### 3. Proactive items earn credit for what they eliminate
+
+```
+impact = own impact + impact of every reactive ticket it would eliminate{bonus_txt}
+```
+
+An item that eliminates a whole cluster is scored on the combined impact of that cluster, which is how a structural fix can outrank a single loud request. The "eliminates" list is the single biggest lever on the proactive share and is a hypothesis: it should be reviewed, not accepted. The metric bonus is off by default because urgency is already in severity; turning it on rewards measurability.
+
+#### 4. Each ticket lands in one of five categories, checked in this order
+
+| | Category | Rule |
+|---|---|---|
+| 1 | **Hand off** | Not engineering work (configuration, data cleanup, process). Reassigned to the owning team. Excluded from capacity. |
+| 2 | **Investigate first** | Effort is unclear and impact is at least {c["discovery_min_impact"]:g}. A short, time-boxed investigation costing {ep["unclear"]:g} point. Unknown effort is never scored as if it were known; unclear items below the impact floor go to Not this quarter. |
+| 3 | **Do now** | Score of {cur("do_now_threshold")} or more (the priority threshold). |
+| 4 | **Later** | Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more. Deferred; revisited if capacity allows. |
+| 5 | **Not this quarter** | Everything else. Declined for this cycle. |
+
+#### 5. Filling the quarter
+
+Team capacity is **{cur("quarter_capacity_points")} effort points** (same unit as effort). "Do now" items are taken in score order until capacity is used; anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled into "Do now" so capacity is not left unused. They carry a "pulled up" note, and the rationale says they were funded on spare capacity rather than merit.
+
+This means the priority threshold is a **quality floor**, not the thing that decides funding. Capacity decides funding; the threshold decides what is good enough to be pulled up. "Large" effort counts as this quarter's slice of a multi-quarter build.
+
+#### 6. The split
+
+The share of allocated effort points going to reactive (customer requests) versus proactive (team initiatives) work. Handed-off work is excluded because it does not consume engineering capacity.
+
+#### Settings
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
-| Strategic multiplier | Sidebar | {c["strategic_multiplier"]:g} | Applied to every ticket from an account marked strategic in step 3a. Off at 1.0. |
-| Account size | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
+| Account size | Step 3a | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The biggest lever. Bigger accounts push their tickets up. |
+| Strategic flag | Step 3a | {", ".join(k for k, v in sorted(c["account_strategic"].items()) if v) or "none"} | Multiplies every ticket from that account. |
+| Strategic multiplier | Sidebar | {c["strategic_multiplier"]:g} | Off at 1.0. |
 | Priority threshold | Sidebar | {cur("do_now_threshold")} | The quality floor. Lower it and more qualifies, usually more proactive work. |
-| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter, same unit as effort. The default assumes five people, six two-week sprints, about five points per sprint after support load. |
+| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter. Default assumes five people, six two-week sprints, about five points per sprint after support load. |
+| Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Fill leftover capacity from lower categories, or leave it unallocated. |
 | Metric bonus | Sidebar | {c["metric_bonus"]:g} | Off at 1.0. Raise it to favour proactive items with a named metric. |
-| Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Whether leftover capacity is filled from lower categories or left unallocated. |
-| 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still qualifies as "Later" rather than "Not this quarter". |
-| Investigation floor | Sidebar | impact at least {c["discovery_min_impact"]:g} | Unclear-effort items above this get an investigation; below it they are declined for the quarter. |
-| Severity scale, effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. Severity is a multiplier; effort and capacity share a unit. |
-| Per-ticket tags | Step 3 | | Cluster, severity, confidence, effort, hand off, metric-linked, eliminates. The model proposes, you decide. |
-| Clusters | Step 3 | | Effort and confidence for the shared fix. Override the tickets' own values. |
+| 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still counts as "Later" rather than "Not this quarter". |
+| Investigation floor | Sidebar | {c["discovery_min_impact"]:g} | Unclear-effort items at or above this impact get an investigation; below it they are declined. |
+| Severity scale, effort points | Sidebar | see above | Widen the gaps to make severity or effort count more. |
+| Per-ticket tags | Step 3c | | Cluster, severity, confidence, effort, hand off, metric-linked, eliminates. The model proposes, you decide. |
+| Clusters | Step 3b, 3d | | Effort and confidence for the shared fix; membership by table or by dragging on the map. |
 """)
 
 # --------------------------------------------------------------------------- #

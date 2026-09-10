@@ -6,8 +6,8 @@ what each proactive item would structurally retire, and flags contradictions.
 The reviewer edits those proposals in the app; scoring.py does the arithmetic.
 
 The response is cached to disk so the app runs without an API key and so the
-demo output does not drift between runs. (No temperature parameter: SDK 1.0+
-rejects it, and the cache is what gives us a stable demo anyway.)
+demo output does not drift between runs. Temperature is sent as 0 through
+extra_body (the 1.0 SDK removed the keyword argument but the API accepts it).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 CACHE_PATH = Path(__file__).parent / "cache" / "ai_pass.json"
+BASELINE_PATH = Path(__file__).parent / "cache" / "baseline.json"
 DEFAULT_MODEL = os.environ.get("BET_SCORER_MODEL", "claude-sonnet-4-6")
 
 SYSTEM_PROMPT = """You are helping a Lead Product Manager triage an inbound request backlog for Trellis, a B2B ordering platform connecting food distributors with restaurant and hospitality operators.
@@ -48,7 +49,12 @@ severity (per ticket)
 - For proactive items, severity means how urgent the metric problem is that the item addresses.
 
 confidence (0.0 to 1.0)
-- How well the root cause and fix are understood. A confirmed cause with a known fix is 0.9 or higher. "Suspect", "possibly", "hard to reproduce", "ambiguous ownership" push it down. For proactive items: how confident you are it would move the named metric.
+- How well the root cause and fix are understood. Use exactly one of these four anchors so that runs are comparable; do not interpolate between them:
+  0.9 = the notes confirm the cause and the fix is known (e.g. support reproduced it, a config value is named).
+  0.7 = a specific cause is named and supported by evidence in the notes ("correlates with", "since the release", two tickets with matching signatures), but not confirmed.
+  0.5 = a cause is guessed ("suspect", "possibly", "could be") or the notes offer two competing explanations.
+  0.3 = cause unknown, hard to reproduce, or ownership is ambiguous (may not be our bug at all).
+- For a cluster, the anchor covers both doubts: are these the same cause, and is the cause known. For proactive items: how confident you are it would move the named metric, on the same anchors.
 
 effort_bucket
 - One of: "small", "1-2 sprints", "large", "unclear". Take rough_effort_hint as the estimate: it comes from the team and is reliable by default. Map it to the nearest bucket and keep it.
@@ -204,6 +210,9 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, syst
         + "\n\nTag every one of the 27 tickets and propose clusters. "
         "Use the submit_backlog_tags tool for your entire answer."
     )
+    # temperature 0 to reduce run-to-run variance. The 1.0 SDK removed the
+    # keyword from messages.create(); the API still accepts it via extra_body.
+    temperature = float(os.environ.get("BET_SCORER_TEMPERATURE", "0"))
     resp = client.messages.create(
         model=model,
         max_tokens=int(os.environ.get("BET_SCORER_MAX_TOKENS", "20000")),
@@ -211,6 +220,7 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, syst
         tools=[TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": TOOL_NAME},
         messages=[{"role": "user", "content": user_msg}],
+        extra_body={"temperature": temperature},
     )
     if resp.stop_reason == "max_tokens":
         raise RuntimeError(
@@ -238,8 +248,164 @@ def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, syst
         "prompt_hash": prompt_hash(df, model, system_prompt),
         "system_prompt": system_prompt,
         "usage": {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens},
+        "temperature": temperature,
         "result": payload,
     }
+
+
+def run_consensus(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, system_prompt: str | None = None, n: int = 3) -> dict:
+    """Run the AI pass n times and keep what a majority agrees on."""
+    runs = [run_ai_pass(df, api_key, model, system_prompt) for _ in range(n)]
+    merged = reconcile_runs([r["result"] for r in runs], df)
+    return {
+        "source": "api",
+        "model": model,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "prompt_hash": prompt_hash(df, model, system_prompt),
+        "system_prompt": system_prompt or SYSTEM_PROMPT,
+        "usage": {"input_tokens": sum(r["usage"]["input_tokens"] for r in runs), "output_tokens": sum(r["usage"]["output_tokens"] for r in runs)},
+        "temperature": runs[0].get("temperature"),
+        "consensus_of": n,
+        "result": merged,
+    }
+
+
+def reconcile_runs(results: list[dict], df: pd.DataFrame) -> dict:
+    """
+    Majority vote across runs. Categorical fields by majority (first run breaks
+    ties), confidence by median, cluster membership by pairwise co-membership
+    in a majority of runs, eliminates links by majority, accounts likewise.
+    """
+    from collections import Counter
+    from statistics import median
+
+    n = len(results)
+    need = n // 2 + 1
+    ids = list(df["request_id"])
+    by_run = [{t["request_id"]: t for t in r["tickets"]} for r in results]
+
+    def vote(field, rid, default=None):
+        vals = [b[rid].get(field) for b in by_run if rid in b]
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            return default
+        c = Counter(json.dumps(v, sort_keys=True) for v in vals)
+        top = max(c.values())
+        for v in vals:                       # first run wins ties
+            if c[json.dumps(v, sort_keys=True)] == top:
+                return v
+        return vals[0]
+
+    # ---- clusters via pairwise co-membership -------------------------------
+    react = [rid for rid in ids if vote("classification", rid) == "reactive"]
+    together = Counter()
+    for b in by_run:
+        groups = {}
+        for rid in react:
+            cid = (b.get(rid) or {}).get("cluster_id") or ""
+            if cid:
+                groups.setdefault(cid, []).append(rid)
+        for members in groups.values():
+            for i in range(len(members)):
+                for j in range(i + 1, len(members)):
+                    together[tuple(sorted((members[i], members[j])))] += 1
+    adj = {rid: set() for rid in react}
+    for (a, b_), k in together.items():
+        if k >= need:
+            adj[a].add(b_); adj[b_].add(a)
+    seen, comps = set(), []
+    for rid in react:
+        if rid in seen or not adj[rid]:
+            continue
+        stack, comp = [rid], []
+        while stack:
+            x = stack.pop()
+            if x in seen:
+                continue
+            seen.add(x); comp.append(x); stack.extend(adj[x] - seen)
+        comps.append(sorted(comp))
+
+    # name and describe each component from the run cluster that overlaps it most
+    run_clusters = []
+    for r in results:
+        for c in r.get("clusters", []):
+            run_clusters.append(c)
+    clusters, assign = [], {}
+    used_ids = set()
+    for comp in comps:
+        best, best_ov = None, 0
+        for c in run_clusters:
+            ov = len(set(c.get("ticket_ids", [])) & set(comp))
+            if ov > best_ov:
+                best, best_ov = c, ov
+        cid = (best or {}).get("cluster_id") or "cluster_" + comp[0].lower().replace("-", "_")
+        base = cid; k = 2
+        while cid in used_ids:
+            cid = f"{base}_{k}"; k += 1
+        used_ids.add(cid)
+        # effort/confidence for the cluster: majority/median over runs' clusters overlapping this component
+        overl = [c for c in run_clusters if len(set(c.get("ticket_ids", [])) & set(comp)) >= max(1, len(comp) // 2)]
+        efforts = Counter(c.get("effort_bucket") for c in overl if c.get("effort_bucket"))
+        confs = [float(c.get("confidence", 0.5)) for c in overl]
+        clusters.append({
+            "cluster_id": cid,
+            "label": (best or {}).get("label", cid),
+            "ticket_ids": comp,
+            "root_cause_hypothesis": (best or {}).get("root_cause_hypothesis", ""),
+            "evidence": ((best or {}).get("evidence", "") + f" [consensus of {n} runs: these tickets were clustered together in at least {need}]").strip(),
+            "effort_bucket": efforts.most_common(1)[0][0] if efforts else (best or {}).get("effort_bucket", "unclear"),
+            "confidence": round(median(confs), 2) if confs else 0.5,
+        })
+        for rid in comp:
+            assign[rid] = cid
+
+    # ---- tickets --------------------------------------------------------------
+    tickets = []
+    for rid in ids:
+        first = next((b[rid] for b in by_run if rid in b), {"request_id": rid})
+        confs = [float(b[rid].get("confidence", 0.5)) for b in by_run if rid in b]
+        ret_votes = Counter(x for b in by_run if rid in b for x in (b[rid].get("retires") or []))
+        retires = sorted([x for x, k in ret_votes.items() if k >= need]) if vote("classification", rid) == "proactive" else []
+        cls = vote("classification", rid, "reactive")
+        notes = [b[rid].get("ambiguity_note", "") for b in by_run if rid in b and b[rid].get("ambiguity_note")]
+        disagreements = []
+        for f in ("severity", "effort_bucket", "redirect", "classification"):
+            vals = {json.dumps(b[rid].get(f)) for b in by_run if rid in b}
+            if len(vals) > 1:
+                disagreements.append(f"{f} varied across runs ({', '.join(sorted(v.strip('"') for v in vals))})")
+        tickets.append({
+            "request_id": rid,
+            "classification": cls,
+            "cluster_id": assign.get(rid, "") if cls == "reactive" else "",
+            "severity": vote("severity", rid, "medium"),
+            "confidence": round(median(confs), 2) if confs else 0.5,
+            "effort_bucket": vote("effort_bucket", rid, "unclear"),
+            "redirect": bool(vote("redirect", rid, False)),
+            "metric_linked": bool(vote("metric_linked", rid, False)),
+            "retires": retires,
+            "reason": first.get("reason", "") + f" [consensus of {n} runs]",
+            "ambiguity_note": " ".join(dict.fromkeys(notes + disagreements)),
+        })
+
+    # ---- accounts -------------------------------------------------------------
+    acc_runs = [{a["source_account"]: a for a in r.get("accounts", [])} for r in results]
+    accounts = []
+    for acct in sorted({a for ar in acc_runs for a in ar}):
+        entries = [ar[acct] for ar in acc_runs if acct in ar]
+        tiers = Counter(e.get("tier") for e in entries)
+        strat = sum(1 for e in entries if e.get("strategic")) >= need
+        accounts.append({
+            "source_account": acct,
+            "tier": tiers.most_common(1)[0][0],
+            "evidence": entries[0].get("evidence", ""),
+            "suggested_weight": int(round(median([int(e.get("suggested_weight", 3)) for e in entries]))),
+            "weight_reason": entries[0].get("weight_reason", "") + f" [consensus of {n} runs]",
+            "strategic": strat,
+            "strategic_reason": next((e.get("strategic_reason", "") for e in entries if e.get("strategic")), "") if strat else "",
+        })
+
+    obs = list(dict.fromkeys(o for r in results for o in r.get("cross_record_observations", [])))
+    return validate_payload({"accounts": accounts, "clusters": clusters, "tickets": tickets, "cross_record_observations": obs}, df)
 
 
 def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
@@ -331,6 +497,22 @@ def save_cache(blob: dict, path: Path | None = None) -> None:
     path = path or cache_path_for(blob["prompt_hash"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(blob, indent=2), encoding="utf-8")
+
+
+def load_baseline(df: pd.DataFrame | None = None) -> dict | None:
+    """
+    The author's fixed analysis, committed to the repo as cache/baseline.json.
+    Loaded for reviewers by default when it covers the same tickets as the
+    loaded file. Never overwritten by the app; the author replaces the file.
+    """
+    if not BASELINE_PATH.exists():
+        return None
+    blob = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    blob["source"] = "baseline"
+    if df is None:
+        return blob
+    ids = {t["request_id"] for t in blob.get("result", {}).get("tickets", [])}
+    return blob if ids == set(df["request_id"]) else None
 
 
 def load_cache(df: pd.DataFrame | None = None, model: str = DEFAULT_MODEL, system_prompt: str | None = None) -> dict | None:

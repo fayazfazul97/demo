@@ -123,8 +123,13 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
     lines = [
         "**About the accounts**",
         "- The data does not state each account's revenue. The AI model reads size indicators in the notes (\"top-5 by GMV\", \"enterprise\", \"small regional\") "
-        "and proposes an account size from 1 to 5. Sizes in use: " + ", ".join(f"{k} {v:g}" for k, v in sorted(aw.items())) + ".",
+        "and proposes an account size from 1 to 5. Size is the revenue tier only; churn risk, escalations and growth are captured by severity on the specific tickets that carry them, never folded into size as well. Sizes in use: " + ", ".join(f"{k} {v:g}" for k, v in sorted(aw.items())) + ".",
         (f"- The reviewer changed the proposed account size for: {', '.join(changed_w)}." if changed_w else "- All account sizes are the model's proposals; the reviewer has not changed any."),
+        (lambda strat, mult, model_strat: (
+            f"- Strategic accounts (impact x{mult:g}): {', '.join(strat) if strat else 'none'}. Strategic means the account matters beyond its revenue tier (growth, reference, regulatory, market entry), read from the notes. "
+            + (f"Differs from the model's proposal ({', '.join(model_strat) or 'none'})." if set(strat) != set(model_strat) else "Matches the model's proposal.")
+        ))([k for k, v in (config.get("account_strategic") or {}).items() if v], float(config.get("strategic_multiplier", 1.0)),
+           [a["source_account"] for a in accounts if a.get("strategic")]),
         (f"- No size indicator was found for {', '.join(unknown_tier)}, so they were assigned the middle size (3)." if unknown_tier else "- Every account had a size indicator in the notes."),
         "",
         "**About the tickets**",
@@ -230,7 +235,7 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
         "",
         "## How the score works",
         "score = impact x confidence / effort.",
-        "Impact = account size (1 to 5) x severity, a multiplier (low 1, medium 2, high 3). Effort is in points of work, and team capacity is measured in the same effort points. "
+        "Impact = account size (1 to 5) x severity, a multiplier (low 1, medium 2, high 3), times the strategic multiplier for accounts marked strategic. Effort is in points of work, and team capacity is measured in the same effort points. "
         "Tickets that share one root cause are scored as a cluster: their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score.",
         "Proactive items receive their own impact plus the impact of every reactive ticket they would eliminate (times the metric bonus, if one is set). Handed-off cluster members add no impact and carry no cost. Unclear effort is never scored as if known.",
         "Categories: " + " ".join(f"{b}: {BUCKET_HELP[b]}" for b in BUCKET_ORDER),

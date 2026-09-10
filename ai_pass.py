@@ -51,8 +51,9 @@ confidence (0.0 to 1.0)
 - How well the root cause and fix are understood. A confirmed cause with a known fix is 0.9 or higher. "Suspect", "possibly", "hard to reproduce", "ambiguous ownership" push it down. For proactive items: how confident you are it would move the named metric.
 
 effort_bucket
-- One of: "small", "1-2 sprints", "large", "unclear". Start from rough_effort_hint. If a ticket joins a cluster, the cluster's effort is what matters, not the ticket's.
-- Override the hint when the notes contradict it, in either direction: a named, plausible cause makes an "unclear" hint estimable; no identified cause makes a sized hint a guess and it should become "unclear". Record every override in ambiguity_note.
+- One of: "small", "1-2 sprints", "large", "unclear". Take rough_effort_hint as the estimate: it comes from the team and is reliable by default. Map it to the nearest bucket and keep it.
+- Override the hint only when something specific in the ticket contradicts it: the hint sizes a fix but the notes show the cause is unknown (then "unclear"), or the hint says "unclear" but the notes confirm the cause and the fix (then size it). A suspected or "could be" cause is not confirmation; keep "unclear" and say the investigation is urgent in reason. If you have no specific reason to override, keep the hint. Record every override in ambiguity_note with the reason.
+- For a cluster, set effort from the members' hints: use the hint of the member whose notes best describe the cause and fix; if no member identifies a cause, use "unclear". Say which hint you used in the cluster evidence.
 
 redirect (boolean)
 - true when the item is not product/engineering work at all: a configuration change, a data cleanup, a process change with no engineering cost, or something support or infra should own. Explain in reason.

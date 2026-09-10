@@ -270,10 +270,30 @@ def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
         a.setdefault("strategic", False)
         a.setdefault("strategic_reason", "")
     cluster_ids = {c["cluster_id"] for c in payload["clusters"]}
+    by_id = {t["request_id"]: t for t in payload["tickets"]}
     for t in payload["tickets"]:
-        if t.get("cluster_id") and t["cluster_id"] not in cluster_ids:
-            t["ambiguity_note"] = (t.get("ambiguity_note", "") + f" [cluster_id '{t['cluster_id']}' not in cluster list; cleared]").strip()
+        t.setdefault("cluster_id", "")
+        t.setdefault("ambiguity_note", "")
+        if t["cluster_id"] and t["cluster_id"] not in cluster_ids:
+            t["ambiguity_note"] = (t["ambiguity_note"] + f" [cluster_id '{t['cluster_id']}' not in cluster list; cleared]").strip()
             t["cluster_id"] = ""
+    # Reconcile the two places membership is written. The cluster's ticket_ids
+    # list and each ticket's cluster_id must agree, otherwise the cluster shows
+    # up empty on the map and is scored as nothing.
+    for c in payload["clusters"]:
+        cid = c["cluster_id"]
+        listed = [x for x in (c.get("ticket_ids") or []) if x in by_id]
+        for rid in listed:
+            t = by_id[rid]
+            if not t["cluster_id"]:
+                t["cluster_id"] = cid
+                t["ambiguity_note"] = (t["ambiguity_note"] + f" [added to {cid}: the cluster listed this ticket but the ticket had no cluster_id]").strip()
+            elif t["cluster_id"] != cid:
+                t["ambiguity_note"] = (t["ambiguity_note"] + f" [cluster {cid} also listed this ticket; kept {t['cluster_id']}]").strip()
+        members = [t["request_id"] for t in payload["tickets"] if t["cluster_id"] == cid]
+        c["ticket_ids"] = members
+        if len(members) < 2:
+            c["evidence"] = (c.get("evidence", "") + f" [only {len(members)} ticket(s) point at this cluster after reconciliation; reviewer should assign members or remove it]").strip()
     return payload
 
 

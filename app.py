@@ -183,8 +183,17 @@ with st.container(border=True):
 
 with st.expander("How the score works"):
     c = config
+    d = DEFAULT_CONFIG
+
+    def cur(key, fmt="{:g}"):
+        """Current value, with the default in brackets when it has been changed."""
+        v, dv = c[key], d[key]
+        return fmt.format(v) if v == dv else f"{fmt.format(v)} (default {fmt.format(dv)})"
+
     st.markdown(f"""
 Every ticket receives a single score. Higher means higher priority.
+
+*The numbers below are the current settings. Each can be changed in the sidebar; where a value has been changed, the default is shown in brackets.*
 
 **score = impact × confidence ÷ effort**
 
@@ -200,19 +209,19 @@ Every ticket receives a single score. Higher means higher priority.
 
 1. **Hand off.** Not engineering work (configuration, data cleanup, process). Reassigned to the owning team. Excluded from capacity.
 2. **Investigate first.** Effort unclear, confidence below {c["discovery_confidence_max"]:g}, and impact at least {c["discovery_min_impact"]:g}. A short, time-boxed investigation before estimating.
-3. **Do now.** Score of {c["do_now_threshold"]:g} or more (the priority threshold).
+3. **Do now.** Score of {cur("do_now_threshold")} or more (the priority threshold, set in the sidebar).
 4. **Later.** Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more; deferred, revisited if capacity allows.
 5. **Not this quarter.** Everything else; declined for this cycle.
 
-Capacity is then allocated: "Do now" items are taken in score order until {c["quarter_capacity_points"]:g} points are used. Anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled up into "Do now", so capacity is not left unused. Those items carry a "pulled up" note in the results.
+Capacity is then allocated: "Do now" items are taken in score order until {cur("quarter_capacity_points")} points are used (the team capacity, set under "Team capacity this quarter" in the sidebar). Anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled up into "Do now", so capacity is not left unused. Those items carry a "pulled up" note in the results.
 
 **The split** is the share of allocated points going to reactive versus proactive work. Handed-off work is excluded because it does not consume engineering capacity.
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
 | Account size | Step 3 | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The single biggest lever. Bigger accounts push their tickets up. |
-| Priority threshold | Sidebar | {c["do_now_threshold"]:g} | Lower it and more is prioritised, usually more proactive work. |
-| Team capacity | Sidebar | {c["quarter_capacity_points"]:g} | Points available this quarter. |
+| Priority threshold | Sidebar | {cur("do_now_threshold")} | Lower it and more is prioritised, usually more proactive work. |
+| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Points available this quarter. The default assumes five people, six two-week sprints, about five points per sprint after support load. |
 | Metric bonus | Sidebar | {c["metric_bonus"]:g} | Set to 1 to remove the proactive advantage. |
 | Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Whether leftover points are filled from lower categories or left unallocated. |
 | 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still qualifies as "Later" rather than "Not this quarter". |

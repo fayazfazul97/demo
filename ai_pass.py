@@ -168,6 +168,31 @@ def prompt_hash(df: pd.DataFrame, model: str, system_prompt: str | None = None) 
     return h.hexdigest()[:12]
 
 
+CONTACT = "Contact Fayaz Fazul on ffazul64@gmail.com."
+
+
+def friendly_error(e: Exception) -> str:
+    """Turn an API exception into a message a reviewer can act on."""
+    msg = str(e)
+    low = msg.lower()
+    status = getattr(e, "status_code", None)
+    if "credit balance" in low or "insufficient" in low and "credit" in low or status == 402:
+        return f"The AI analysis could not run because the API account has insufficient credits. {CONTACT}"
+    if status == 401 or "authentication" in low or "invalid x-api-key" in low or "api key" in low and "invalid" in low:
+        return f"The API key was rejected. {CONTACT}"
+    if status == 403 or "permission" in low:
+        return f"The API key does not have permission to use this model. {CONTACT}"
+    if status == 429 or "rate limit" in low or "rate_limit" in low:
+        return "The API rate limit was hit. Wait a minute and try again. If it keeps happening, " + CONTACT[0].lower() + CONTACT[1:]
+    if status == 404 or "not_found" in low or "model" in low and "not found" in low:
+        return f"The model '{DEFAULT_MODEL}' was not found for this API key. {CONTACT}"
+    if status is not None and status >= 500 or "overloaded" in low or "internal server" in low:
+        return "The AI service is temporarily unavailable. Wait a minute and try again."
+    if "cut off by the token limit" in msg or "missing" in low and "output" in low or "did not return the structured output" in msg:
+        return msg
+    return f"The AI analysis failed: {msg[:300]}. If this keeps happening, {CONTACT[0].lower()}{CONTACT[1:]}"
+
+
 def run_ai_pass(df: pd.DataFrame, api_key: str, model: str = DEFAULT_MODEL, system_prompt: str | None = None) -> dict:
     """Call the model with a forced tool so the output is schema-valid JSON."""
     import anthropic  # imported here so the app runs without the SDK installed

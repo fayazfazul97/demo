@@ -130,7 +130,7 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         "**About the tickets**",
         "- Severity is based on the figures and facts in the notes, not on the urgency of the tone. Where the two disagree, the notes prevail"
         + (f"; {len(flagged)} tickets carry a note flagging a judgement for the reviewer: {', '.join(flagged)}." if flagged else "."),
-        f"- Effort turns into points of work: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. Team capacity is counted in the same effort points. Severity is a separate multiplier (low 1, medium 2, high 3), not work. "
+        f"- Effort comes from the team's rough_effort_hint and is trusted by default; the model overrides a hint only when something specific in the ticket contradicts it, and each override is flagged. Hints turn into points of work: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. Team capacity is counted in the same effort points. Severity is a separate multiplier (low 1, medium 2, high 3), not work. "
         "Account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one; that is a deliberate bias towards revenue at risk. "
         f"When effort is unclear it is never scored as if known; {ep['unclear']:g} point is allocated to a time-boxed investigation if the impact is at least {config['discovery_min_impact']:g}, otherwise the item is declined for the quarter"
         + (f". Effort unclear right now: {', '.join(unclear)}." if unclear else "."),

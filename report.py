@@ -10,7 +10,7 @@ from scoring import BUCKET_HELP, BUCKET_ORDER, DEFAULT_CONFIG, capacity_split, s
 
 
 def _pts(n: float) -> str:
-    return f"{n:g} point{'s' if n != 1 else ''}"
+    return f"{n:g} effort point{'s' if n != 1 else ''}"
 
 
 def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, config: dict,
@@ -122,7 +122,7 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         "**About the tickets**",
         "- Severity is based on the figures and facts in the notes, not on the urgency of the tone. Where the two disagree, the notes prevail"
         + (f"; {len(flagged)} tickets carry a note flagging a judgement for the reviewer: {', '.join(flagged)}." if flagged else "."),
-        f"- Effort turns into points: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. "
+        f"- Effort turns into points of work: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. Team capacity is counted in the same effort points. Severity is a separate multiplier (low 1, medium 2, high 3), not work. "
         f"When effort is unclear it is not estimated; {ep['unclear']:g} point is allocated to a time-boxed investigation, provided the impact justifies it"
         + (f". Effort unclear right now: {', '.join(unclear)}." if unclear else "."),
         "- \"Next quarter\" refers to the quarter following the latest date_received in the file.",
@@ -142,7 +142,7 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         f"- Team capacity is {config['quarter_capacity_points']:g} points this quarter"
         + (f" (default {DEFAULT_CONFIG['quarter_capacity_points']:g}, changed in the sidebar)" if config['quarter_capacity_points'] != DEFAULT_CONFIG['quarter_capacity_points'] else " (the default, adjustable in the sidebar)")
         + ". The default assumes five people, six two-week sprints, and roughly five points per sprint after support load. The data does not state team size.",
-        "- The split is measured in points of effort (Do now plus Investigate first), not in ticket counts. Handed-off items are excluded because configuration, cleanup and process work do not consume engineering capacity, "
+        "- The split is measured in effort points (Do now plus Investigate first), not in ticket counts. Handed-off items are excluded because configuration, cleanup and process work do not consume engineering capacity, "
         "on the assumption that support, infrastructure or the PM group take them on.",
         f"- The priority threshold ({config['do_now_threshold']:g}"
         + (f", default {DEFAULT_CONFIG['do_now_threshold']:g}, changed in the sidebar" if config['do_now_threshold'] != DEFAULT_CONFIG['do_now_threshold'] else ", the default, adjustable in the sidebar")
@@ -220,7 +220,7 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
         "",
         "## How the score works",
         "score = impact x confidence / effort.",
-        "Impact = account size (1 to 5) x severity (low 1, medium 2, high 3). "
+        "Impact = account size (1 to 5) x severity, a multiplier (low 1, medium 2, high 3). Effort is in points of work, and team capacity is measured in the same effort points. "
         "Tickets that share one root cause are scored as a cluster: their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score.",
         "Proactive items receive their own impact plus the impact of every reactive ticket they would eliminate, multiplied by a bonus if linked to a company metric.",
         "Categories: " + " ".join(f"{b}: {BUCKET_HELP[b]}" for b in BUCKET_ORDER),

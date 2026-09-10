@@ -202,7 +202,7 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
         "## Assumptions",
         list_assumptions(scored, clusters, config, accounts, ai_meta, diff),
         "",
-        "## Gaps and contradictions",
+        "## Judgement calls",
         "Every ticket the model flagged as needing a judgement, the call that was made, and the reviewer's note.",
         "",]
     gaps = gaps_table(scored, tickets)

@@ -1,1 +1,222 @@
- 
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<script src="d3.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #wrap { position: relative; }
+  svg { width: 100%; display: block; border-radius: 8px; background: rgba(128,128,128,0.06); }
+  .hint { font-size: 12px; color: #888; padding: 6px 2px; display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  .hint b { color: #aaa; font-weight: 600; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .sq { border-radius: 2px; }
+  #toast { position: absolute; top: 8px; right: 12px; font-size: 12px; background: rgba(40,40,40,0.9); color: #eee; padding: 6px 10px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .node text { font-size: 10px; fill: #ddd; pointer-events: none; }
+  .cluster text { font-size: 11px; font-weight: 600; fill: #eee; }
+  .link { stroke: #999; stroke-opacity: 0.6; stroke-width: 1.5px; cursor: pointer; }
+  .link.retires { stroke: #e6a23c; stroke-dasharray: 4 3; }
+  .link:hover { stroke: #ff5c5c; stroke-width: 3px; stroke-opacity: 1; }
+  .drop-target { stroke: #4ade80 !important; stroke-width: 3px !important; }
+  .locked .link { cursor: default; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="hint">
+    <span><span class="swatch" style="background:#5b9bd5"></span>reactive ticket</span>
+    <span><span class="swatch" style="background:#e6a23c"></span>proactive ticket</span>
+    <span><span class="swatch sq" style="background:#8e7cc3"></span>cluster</span>
+    <span>solid line: member of cluster</span>
+    <span>dashed line: eliminates</span>
+    <span id="editing-hints"><b>Drag</b> a reactive ticket onto a cluster to assign it. <b>Drag</b> a proactive ticket onto a reactive ticket to mark it as eliminated. <b>Click</b> a line to remove it. <b>Double-click</b> empty space to add a cluster.</span>
+  </div>
+  <svg id="g"></svg>
+  <div id="toast"></div>
+</div>
+<script>
+(function () {
+  // ---- Streamlit handshake (no build step, plain postMessage protocol) ----
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
+  }
+  function setValue(v) { send("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+  function setHeight(h) { send("streamlit:setFrameHeight", { height: h }); }
+
+  let state = { nodes: [], links: [], locked: false, height: 560 };
+  let positions = {};      // remembered node positions across re-renders
+  let sim = null, svg = d3.select("#g"), gLinks, gNodes;
+  const toastEl = document.getElementById("toast");
+  function toast(msg) { toastEl.textContent = msg; toastEl.style.opacity = 1; setTimeout(() => toastEl.style.opacity = 0, 1600); }
+
+  function emit() {
+    const memberships = {}, retires = {}, newClusters = [];
+    state.nodes.forEach(n => {
+      if (n.type === "ticket") {
+        memberships[n.id] = "";
+        if (n.classification === "proactive") retires[n.id] = [];
+      } else if (n.isNew) {
+        newClusters.push({ cluster_id: n.id, label: n.label || n.id });
+      }
+    });
+    state.links.forEach(l => {
+      const s = typeof l.source === "object" ? l.source.id : l.source;
+      const t = typeof l.target === "object" ? l.target.id : l.target;
+      if (l.kind === "member") memberships[s] = t;
+      else if (l.kind === "retires") (retires[s] = retires[s] || []).push(t);
+    });
+    const value = { seq: Date.now(), memberships, retires, new_clusters: newClusters };
+    window.__lastValue = value;   // exposed for tests / debugging
+    setValue(value);
+  }
+
+  function byId(id) { return state.nodes.find(n => n.id === id); }
+  function radius(n) { return n.type === "cluster" ? 22 : 7 + Math.min(9, (n.score || 0) * 0.9); }
+
+  function render() {
+    const width = document.getElementById("wrap").clientWidth || 900;
+    const height = state.height;
+    svg.attr("viewBox", [0, 0, width, height]).attr("height", height);
+    svg.selectAll("*").remove();
+    document.body.classList.toggle("locked", !!state.locked);
+    document.getElementById("editing-hints").style.display = state.locked ? "none" : "";
+
+    // restore remembered positions
+    state.nodes.forEach(n => { const p = positions[n.id]; if (p) { n.x = p.x; n.y = p.y; } });
+
+    // background double-click: new cluster
+    svg.append("rect").attr("width", width).attr("height", height).attr("fill", "transparent")
+      .on("dblclick", (ev) => {
+        if (state.locked) return;
+        const raw = window.prompt("New cluster id (short, no spaces):");
+        if (!raw) return;
+        const id = raw.trim().toLowerCase().replace(/\s+/g, "_");
+        if (byId(id)) { toast("That id already exists"); return; }
+        const [x, y] = d3.pointer(ev);
+        state.nodes.push({ id, label: id, type: "cluster", isNew: true, x, y });
+        rebuild(); emit(); toast("Cluster added: " + id);
+      });
+
+    gLinks = svg.append("g").selectAll("line");
+    gNodes = svg.append("g").selectAll("g");
+
+    sim = d3.forceSimulation(state.nodes)
+      .force("link", d3.forceLink(state.links).id(d => d.id).distance(l => l.kind === "member" ? 55 : 80).strength(0.6))
+      .force("charge", d3.forceManyBody().strength(-160))
+      .force("collide", d3.forceCollide().radius(n => radius(n) + 6))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("x", d3.forceX(width / 2).strength(0.03))
+      .force("y", d3.forceY(height / 2).strength(0.03));
+
+    rebuild();
+  }
+
+  function rebuild() {
+    gLinks = gLinks.data(state.links, l => (l.source.id || l.source) + "|" + (l.target.id || l.target) + "|" + l.kind);
+    gLinks.exit().remove();
+    gLinks = gLinks.enter().append("line")
+      .attr("class", l => "link " + l.kind)
+      .on("click", (ev, l) => {
+        if (state.locked) return;
+        state.links = state.links.filter(x => x !== l);
+        rebuild(); emit();
+        toast(l.kind === "member" ? "Removed from cluster" : "Removed eliminates link");
+      })
+      .merge(gLinks);
+
+    gNodes = gNodes.data(state.nodes, n => n.id);
+    gNodes.exit().remove();
+    const enter = gNodes.enter().append("g").attr("class", n => "node " + n.type);
+    enter.filter(n => n.type === "ticket").append("circle")
+      .attr("r", radius)
+      .attr("fill", n => n.classification === "proactive" ? "#e6a23c" : "#5b9bd5")
+      .attr("stroke", n => ({ "Do now": "#4ade80", "Investigate first": "#facc15", "Later": "#94a3b8", "Not this quarter": "#64748b", "Hand off": "#c084fc" }[n.bucket] || "#888"))
+      .attr("stroke-width", 2);
+    enter.filter(n => n.type === "cluster").append("rect")
+      .attr("width", 44).attr("height", 44).attr("x", -22).attr("y", -22).attr("rx", 8)
+      .attr("fill", "#8e7cc3").attr("stroke", "#c7b8ff").attr("stroke-width", 1.5);
+    enter.append("title").text(n => n.type === "cluster" ? (n.label || n.id) : `${n.id}\n${n.account || ""}\n${n.classification || ""} · ${n.bucket || ""} · score ${n.score ?? ""}`);
+    enter.append("text").attr("dy", n => n.type === "cluster" ? 34 : radius(n) + 11).attr("text-anchor", "middle")
+      .text(n => n.type === "cluster" ? (n.label || n.id).slice(0, 22) : n.id.replace(/^TRQ-/, ""));
+    gNodes = enter.merge(gNodes);
+    gNodes.call(d3.drag().on("start", dragStart).on("drag", dragging).on("end", dragEnd));
+
+    sim.nodes(state.nodes);
+    sim.force("link").links(state.links);
+    sim.alpha(0.6).restart();
+    sim.on("tick", () => {
+      gLinks.attr("x1", l => l.source.x).attr("y1", l => l.source.y).attr("x2", l => l.target.x).attr("y2", l => l.target.y);
+      gNodes.attr("transform", n => { positions[n.id] = { x: n.x, y: n.y }; return `translate(${n.x},${n.y})`; });
+    });
+  }
+
+  let hover = null;
+  function nearest(n) {
+    let best = null, bd = 1e9;
+    state.nodes.forEach(o => {
+      if (o === n) return;
+      const d = Math.hypot(o.x - n.x, o.y - n.y);
+      if (d < radius(o) + 14 && d < bd) { best = o; bd = d; }
+    });
+    return best;
+  }
+  function validTarget(n, o) {
+    if (!o || n.type !== "ticket") return false;
+    if (o.type === "cluster") return n.classification === "reactive";
+    return n.classification === "proactive" && o.classification === "reactive";
+  }
+  function dragStart(ev, n) {
+    // Freeze every other node so drop targets stay put while dragging.
+    state.nodes.forEach(o => { if (o !== n) { o.fx = o.x; o.fy = o.y; } });
+    if (!ev.active) sim.alphaTarget(0.1).restart();
+    n.fx = n.x; n.fy = n.y;
+  }
+  function dragging(ev, n) {
+    n.fx = ev.x; n.fy = ev.y;
+
+    const o = nearest(n);
+    gNodes.selectAll("circle,rect").classed("drop-target", false);
+    if (!state.locked && validTarget(n, o)) {
+      hover = o;
+      gNodes.filter(d => d === o).selectAll("circle,rect").classed("drop-target", true);
+    } else hover = null;
+  }
+  function dragEnd(ev, n) {
+    if (!ev.active) sim.alphaTarget(0);
+    state.nodes.forEach(o => { o.fx = null; o.fy = null; });
+    // keep the dragged node where it was dropped
+    n.fx = n.x; n.fy = n.y; setTimeout(() => { n.fx = null; n.fy = null; }, 800);
+    gNodes.selectAll("circle,rect").classed("drop-target", false);
+    if (state.locked || !hover) return;
+    const o = hover; hover = null;
+    if (o.type === "cluster") {
+      state.links = state.links.filter(l => !(l.kind === "member" && (l.source.id || l.source) === n.id));
+      state.links.push({ source: n, target: o, kind: "member" });
+      toast(`${n.id} assigned to ${o.id}`);
+    } else {
+      const exists = state.links.some(l => l.kind === "retires" && (l.source.id || l.source) === n.id && (l.target.id || l.target) === o.id);
+      if (!exists) state.links.push({ source: n, target: o, kind: "retires" });
+      toast(`${n.id} eliminates ${o.id}`);
+    }
+    rebuild(); emit();
+  }
+
+  window.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (!d || d.type !== "streamlit:render") return;
+    const a = d.args || {};
+    state = {
+      nodes: (a.nodes || []).map(n => Object.assign({}, n)),
+      links: (a.links || []).map(l => Object.assign({}, l)),
+      locked: !!a.locked,
+      height: a.height || 560,
+    };
+    render();
+    setHeight(document.body.scrollHeight + 8);
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+  setHeight(620);
+})();
+</script>
+</body>
+</html>

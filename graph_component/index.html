@@ -51,6 +51,7 @@
     <span><span class="swatch" style="background:transparent;border:2px dashed #d4a017"></span>strategic account</span>
     <span>no line: unclustered</span>
     <span><span class="swatch sq" style="background:transparent;border:1.5px dashed #8e7cc3"></span>empty cluster</span>
+    <label style="cursor:pointer"><input type="checkbox" id="showElim" checked style="vertical-align:middle"> show eliminates lines</label>
     <span id="editing-hints"><b>Click</b> a node for details. <b>Drag</b> a reactive ticket onto a cluster to assign it. <b>Drag</b> a proactive ticket onto a reactive ticket to mark it as eliminated. <b>Click</b> a line to remove it. <b>Double-click</b> empty space to add a cluster.</span>
   </div>
   <div id="row">
@@ -139,6 +140,9 @@
 
   function render() {
     const width = document.getElementById("graphbox").clientWidth || 800;
+    const nClusters = state.nodes.filter(n => n.type === "cluster").length;
+    const nTickets = state.nodes.filter(n => n.type === "ticket").length;
+    state.height = Math.min(1000, Math.max(state.height, 220 + 55 * nClusters + 10 * nTickets));
     const height = state.height;
     svg.attr("viewBox", [0, 0, width, height]).attr("height", height);
     svg.selectAll("*").remove();
@@ -171,55 +175,51 @@
     d3.select("#zout").on("click", () => svg.transition().duration(200).call(zoom.scaleBy, 1 / 1.3));
     d3.select("#zreset").on("click", fitToView);
 
-    // Layout: hub and spoke. Clusters sit on a grid; each cluster's tickets
-    // sit on a ring around it; unclustered reactive tickets form a column on
-    // the left; proactive items form a row along the bottom. A collision
-    // force keeps nodes and labels from touching; nothing else pulls them.
+    // Layout: force-directed with structure. Members are held close to their
+    // own cluster by short, stiff links; clusters repel each other strongly;
+    // unclustered reactive tickets are pulled to a column on the left;
+    // proactive items are pulled to a row along the bottom. Collision padding
+    // keeps circles and labels apart.
     assignTargets(width, height);
-    sim = d3.forceSimulation(state.nodes).alphaDecay(0.06).velocityDecay(0.5)
-      .force("x", d3.forceX(n => n.tx).strength(0.8))
-      .force("y", d3.forceY(n => n.ty).strength(0.8))
-      .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? pillWidth(n) / 2 + 8 : radius(n) + 16).strength(1).iterations(3));
+    sim = d3.forceSimulation(state.nodes).alphaDecay(0.03).velocityDecay(0.55)
+      .force("link", d3.forceLink(state.links).id(d => d.id)
+        .distance(l => l.kind === "member" ? 70 : 260)
+        .strength(l => l.kind === "member" ? 1.0 : 0.02))
+      .force("charge", d3.forceManyBody().strength(n => n.type === "cluster" ? -3000 : -220).distanceMax(520))
+      .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? pillWidth(n) / 2 + 22 : radius(n) + 20).strength(1).iterations(2))
+      .force("x", d3.forceX(n => n.tx).strength(n => n.txs))
+      .force("y", d3.forceY(n => n.ty).strength(n => n.tys))
+      // proactive items slide horizontally under the tickets they eliminate,
+      // so the dashed lines run mostly vertical instead of across the map
+      .force("underTargets", (alpha) => {
+        const targets = {};
+        state.links.forEach(l => { if (l.kind === "retires" && typeof l.source === "object" && typeof l.target === "object") (targets[l.source.id] = targets[l.source.id] || []).push(l.target); });
+        Object.keys(targets).forEach(id => {
+          const n = byId(id); if (!n) return;
+          const mx = targets[id].reduce((a, t) => a + t.x, 0) / targets[id].length;
+          n.vx += (mx - n.x) * 0.25 * alpha;
+        });
+      });
     sim.on("end", fitToView);
     rebuild();
     if (selectedId && byId(selectedId)) showDetails(byId(selectedId)); else showDetails(null);
   }
 
   function assignTargets(width, height) {
-    const clusters = state.nodes.filter(n => n.type === "cluster");
     const members = {};
     state.links.forEach(l => { if (l.kind === "member") { const [t, c] = linkEnds(l); (members[c] = members[c] || []).push(t); } });
     const clusteredIds = new Set([].concat(...Object.values(members)));
     const proactive = state.nodes.filter(n => n.type === "ticket" && n.classification === "proactive");
     const loose = state.nodes.filter(n => n.type === "ticket" && n.classification !== "proactive" && !clusteredIds.has(n.id))
       .sort((a, b) => (b.score || 0) - (a.score || 0));
-
-    const leftW = 120, bottomH = proactive.length ? 90 : 0, top = 30;
-    // left column: unclustered reactive tickets
-    const colH = height - top - bottomH - 20;
-    loose.forEach((n, i) => { n.tx = 60; n.ty = top + 20 + (loose.length > 1 ? i * (colH - 40) / (loose.length - 1) : colH / 2); });
-    // bottom row: proactive items
-    proactive.forEach((n, i) => { n.tx = leftW + 60 + i * ((width - leftW - 120) / Math.max(1, proactive.length - 1)); n.ty = height - 45; });
-    if (proactive.length === 1) proactive[0].tx = leftW + (width - leftW) / 2;
-    // grid: clusters with rings
-    const areaX = leftW + 40, areaW = width - areaX - 20, areaY = top, areaH = height - top - bottomH - 20;
-    const n = clusters.length || 1;
-    const cols = Math.max(1, Math.round(Math.sqrt(n * areaW / Math.max(1, areaH))));
-    const rows = Math.ceil(n / cols);
-    const cellW = areaW / cols, cellH = areaH / rows;
-    const ring = Math.max(78, Math.min(cellW, cellH) * 0.36);
-    clusters.forEach((c, i) => {
-      const cx = areaX + (i % cols + 0.5) * cellW, cy = areaY + (Math.floor(i / cols) + 0.5) * cellH;
-      c.tx = cx; c.ty = cy;
-      const ids = members[c.id] || [];
-      ids.forEach((tid, j) => {
-        const t = byId(tid); if (!t) return;
-        const ang = -Math.PI / 2 + j * 2 * Math.PI / ids.length;
-        t.tx = cx + ring * Math.cos(ang); t.ty = cy + ring * Math.sin(ang);
-      });
+    const top = 40, bottomH = proactive.length ? 100 : 0, leftW = 130;
+    const colH = height - top - bottomH - 30;
+    state.nodes.forEach(n => { n.tx = leftW + (width - leftW) / 2; n.ty = (height - bottomH) / 2; n.txs = 0.03; n.tys = 0.03; });
+    loose.forEach((n, i) => { n.tx = 60; n.ty = top + 20 + (loose.length > 1 ? i * (colH - 40) / (loose.length - 1) : colH / 2); n.txs = 0.45; n.tys = 0.25; });
+    proactive.forEach((n, i) => {
+      n.tx = proactive.length > 1 ? leftW + 60 + i * (width - leftW - 120) / (proactive.length - 1) : leftW + (width - leftW) / 2;
+      n.ty = height - 50; n.txs = 0.35; n.tys = 0.6;
     });
-    // anything left (e.g. member links to unknown ids) stays where it is
-    state.nodes.forEach(nd => { if (nd.tx == null) { nd.tx = nd.x || width / 2; nd.ty = nd.y || height / 2; } });
   }
 
   function fitToView() {
@@ -247,6 +247,7 @@
     gLinks = gLinks.data(state.links, l => linkEnds(l).join("|") + "|" + l.kind);
     gLinks.exit().remove();
     gLinks = gLinks.enter().append("line").attr("class", l => "link " + l.kind)
+      .style("display", l => (l.kind === "retires" && !document.getElementById("showElim").checked) ? "none" : null)
       .on("click", (ev, l) => {
         ev.stopPropagation();
         if (state.locked) return;
@@ -286,8 +287,9 @@
     const width = document.getElementById("graphbox").clientWidth || 800;
     assignTargets(width, state.height);
     sim.nodes(state.nodes);
+    sim.force("link").links(state.links);
     sim.force("x").initialize(state.nodes); sim.force("y").initialize(state.nodes);
-    sim.alpha(0.8).restart();
+    sim.alpha(0.7).restart();
     sim.on("tick", () => {
       gLinks.attr("x1", l => l.source.x).attr("y1", l => l.source.y).attr("x2", l => l.target.x).attr("y2", l => l.target.y);
       gNodes.attr("transform", n => { positions[n.id] = { x: n.x, y: n.y }; return `translate(${n.x},${n.y})`; });
@@ -340,6 +342,10 @@
     rebuild(); emit();
     if (selectedId) showDetails(byId(selectedId));
   }
+
+  document.getElementById("showElim").addEventListener("change", (e) => {
+    svg.selectAll("line.link.retires").style("display", e.target.checked ? null : "none");
+  });
 
   window.addEventListener("message", (ev) => {
     const d = ev.data;

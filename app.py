@@ -543,7 +543,7 @@ try:
 except Exception:
     _preview_scored = None
 g_nodes, g_links = graph_payload(working_tickets, working_clusters, _preview_scored)
-graph_val = _cluster_graph(nodes=g_nodes, links=g_links, locked=locked, height=560, key="cluster_graph", default=None)
+graph_val = _cluster_graph(nodes=g_nodes, links=g_links, locked=locked, height=640, key="cluster_graph", default=None)
 if graph_val and not locked and int(graph_val.get("seq", 0)) > int(ss.graph_seq):
     ss.graph_seq = int(graph_val["seq"])
     new_t, new_c = apply_graph_edits(graph_val, working_tickets, working_clusters)

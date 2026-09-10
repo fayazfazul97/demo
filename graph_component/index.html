@@ -32,6 +32,8 @@
   .link { stroke: var(--linkc); stroke-opacity: 0.7; stroke-width: 1.5px; cursor: pointer; }
   .link.retires { stroke: #e6a23c; stroke-dasharray: 4 3; }
   .link:hover { stroke: #ff5c5c; stroke-width: 3px; stroke-opacity: 1; }
+  .strat { fill: none; stroke: #d4a017; stroke-width: 2px; stroke-dasharray: 3 2; pointer-events: none; }
+  .zone-label { font-size: 12px; fill: var(--muted); pointer-events: none; }
   .drop-target { stroke: #4ade80 !important; stroke-width: 3px !important; }
   .selected circle, .selected rect { stroke: var(--text) !important; stroke-width: 3px !important; }
   .locked .link { cursor: default; }
@@ -46,6 +48,9 @@
     <span>solid line: member of cluster</span>
     <span>dashed line: eliminates</span>
     <span>ring colour: category</span>
+    <span><span class="swatch" style="background:transparent;border:2px dashed #d4a017"></span>strategic account</span>
+    <span>no line: unclustered</span>
+    <span><span class="swatch sq" style="background:transparent;border:1.5px dashed #8e7cc3"></span>empty cluster</span>
     <span id="editing-hints"><b>Click</b> a node for details. <b>Drag</b> a reactive ticket onto a cluster to assign it. <b>Drag</b> a proactive ticket onto a reactive ticket to mark it as eliminated. <b>Click</b> a line to remove it. <b>Double-click</b> empty space to add a cluster.</span>
   </div>
   <div id="row">
@@ -118,6 +123,8 @@
          + `<span class="k">confidence</span><span>${n.confidence != null ? n.confidence : ""}</span>`
          + `<span class="k">effort</span><span>${esc(n.effort || "")}</span>`
          + (mem ? `<span class="k">cluster</span><span>${esc(linkEnds(mem)[1])}</span>` : "")
+         + (n.strategic ? `<span class="k">strategic acct</span><span>yes</span>` : "")
+         + (n.classification === "reactive" && !mem ? `<span class="k">cluster</span><span>none (scored on its own)</span>` : "")
          + (n.redirect ? `<span class="k">hand off</span><span>yes</span>` : "")
          + (n.metric_linked ? `<span class="k">metric</span><span>named</span>` : "")
          + (elim.length ? `<span class="k">eliminates</span><span>${esc(elim.join(", "))}</span>` : "")
@@ -171,7 +178,7 @@
         .distance(l => l.kind === "member" ? 80 : 150).strength(l => l.kind === "member" ? 0.9 : 0.15))
       .force("charge", d3.forceManyBody().strength(n => n.type === "cluster" ? -2200 : -220).distanceMax(500))
       .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? 70 : radius(n) + 16).strength(0.9))
-      .force("x", d3.forceX(width / 2).strength(0.04))
+      .force("x", d3.forceX(n => (n.type === "ticket" && !n.clustered) ? width * 0.08 : width * 0.68).strength(n => (n.type === "ticket" && !n.clustered) ? 0.18 : 0.09))
       .force("y", d3.forceY(height / 2).strength(0.06));
     sim.on("end", fitToView);
     rebuild();
@@ -208,15 +215,24 @@
       .attr("fill", n => n.classification === "proactive" ? "#e6a23c" : "#5b9bd5")
       .attr("stroke", n => ({ "Do now": "#4ade80", "Investigate first": "#facc15", "Later": "#94a3b8", "Not this quarter": "#64748b", "Hand off": "#c084fc" }[n.bucket] || "#888"))
       .attr("stroke-width", 2);
+    enter.filter(n => n.type === "ticket" && n.strategic).append("circle").attr("class", "strat").attr("r", n => radius(n) + 4);
     enter.filter(n => n.type === "cluster").append("rect")
       .attr("width", 44).attr("height", 44).attr("x", -22).attr("y", -22).attr("rx", 8)
-      .attr("fill", "#8e7cc3").attr("stroke", "#c7b8ff").attr("stroke-width", 1.5);
+      .attr("stroke", "#c7b8ff").attr("stroke-width", 1.5);
     enter.append("title").text(n => n.type === "cluster" ? (n.label || n.id) : `${n.id} · ${n.account || ""}\n${n.classification || ""} · ${n.bucket || ""} · score ${n.score != null ? n.score.toFixed(2) : ""}`);
     enter.append("text").attr("dy", n => n.type === "cluster" ? 34 : radius(n) + 11).attr("text-anchor", "middle")
       .text(n => n.type === "cluster" ? n.id : n.id.replace(/^TRQ-/, ""));
     enter.on("click", (ev, n) => { ev.stopPropagation(); showDetails(n); });
     gNodes = enter.merge(gNodes);
     gNodes.classed("selected", d => d.id === selectedId);
+    // empty clusters are drawn hollow so they stand out
+    const memberCount = {};
+    state.links.forEach(l => { if (l.kind === "member") { const t = linkEnds(l)[1]; memberCount[t] = (memberCount[t] || 0) + 1; } });
+    gNodes.filter(d => d.type === "cluster").select("rect")
+      .attr("fill", d => memberCount[d.id] ? "#8e7cc3" : "none")
+      .attr("stroke-dasharray", d => memberCount[d.id] ? null : "5 3")
+      .attr("stroke", d => memberCount[d.id] ? "#c7b8ff" : "#8e7cc3");
+    gNodes.filter(d => d.type === "cluster").select("text").text(d => memberCount[d.id] ? d.id : d.id + " (empty)");
     gNodes.call(d3.drag().clickDistance(12).on("start", dragStart).on("drag", dragging).on("end", dragEnd));
 
     sim.nodes(state.nodes);

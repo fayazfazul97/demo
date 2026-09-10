@@ -520,7 +520,7 @@ def show(sub: pd.DataFrame) -> None:
                  column_config={"rationale": st.column_config.TextColumn("rationale", width="large")})
 
 
-tab_labels = BUCKET_ORDER + ["Clusters", "Assumptions", "Gaps and contradictions", "Changes from the model", "All tickets"]
+tab_labels = BUCKET_ORDER + ["Clusters", "Assumptions", "Judgement calls", "Changes from the model", "All tickets"]
 tabs = st.tabs(tab_labels)
 for tab, bucket in zip(tabs[: len(BUCKET_ORDER)], BUCKET_ORDER):
     with tab:

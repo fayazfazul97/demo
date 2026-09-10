@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from scoring import BUCKET_HELP, BUCKET_ORDER, capacity_split, score_backlog
+from scoring import BUCKET_HELP, BUCKET_ORDER, DEFAULT_CONFIG, capacity_split, score_backlog
 
 
 def _pts(n: float) -> str:
@@ -139,10 +139,14 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         f"- Proactive items linked to a named company metric receive a {config['metric_bonus']:g}x bonus. A useful item with no named metric receives no bonus.",
         "",
         "**About capacity and the split**",
-        f"- Team capacity is {config['quarter_capacity_points']:g} points this quarter. The default assumes five people, six two-week sprints, and roughly five points per sprint after support load. The data does not state team size.",
+        f"- Team capacity is {config['quarter_capacity_points']:g} points this quarter"
+        + (f" (default {DEFAULT_CONFIG['quarter_capacity_points']:g}, changed in the sidebar)" if config['quarter_capacity_points'] != DEFAULT_CONFIG['quarter_capacity_points'] else " (the default, adjustable in the sidebar)")
+        + ". The default assumes five people, six two-week sprints, and roughly five points per sprint after support load. The data does not state team size.",
         "- The split is measured in points of effort (Do now plus Investigate first), not in ticket counts. Handed-off items are excluded because configuration, cleanup and process work do not consume engineering capacity, "
         "on the assumption that support, infrastructure or the PM group take them on.",
-        f"- The priority threshold ({config['do_now_threshold']:g}) is a chosen value, not derived from the data. The sensitivity note in the rationale shows the effect of moving it.",
+        f"- The priority threshold ({config['do_now_threshold']:g}"
+        + (f", default {DEFAULT_CONFIG['do_now_threshold']:g}, changed in the sidebar" if config['do_now_threshold'] != DEFAULT_CONFIG['do_now_threshold'] else ", the default, adjustable in the sidebar")
+        + ") is a chosen value, not derived from the data. The sensitivity note in the rationale shows the effect of moving it.",
         {"later": "- Spare capacity is filled from 'Later' with the best-scoring items that fit, so the quarter is fully allocated. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
          "later_and_declined": "- Spare capacity is filled from 'Later' and 'Not this quarter' with the best-scoring items that fit. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
          "off": "- Spare capacity is left unallocated; nothing below the threshold is funded."}[config.get("fill_spare_capacity", "later")],

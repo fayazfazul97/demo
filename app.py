@@ -37,7 +37,7 @@ from scoring import (
 )
 
 DATA_PATH = Path(__file__).parent / "data" / "Inbound_Requests.csv"
-MAX_RUNS_PER_SESSION = 3
+MAX_RUNS_PER_SESSION = 6   # API calls per browser session; a consensus run uses 3
 _cluster_graph = components.declare_component("cluster_graph", path=str(Path(__file__).parent / "graph_component"))
 
 st.set_page_config(page_title="Backlog scorer", layout="wide")
@@ -155,6 +155,32 @@ def load_proposal(blob: dict) -> None:
     ss.accounts_df = build_accounts_df(blob["result"].get("accounts", []))
     ss.config["account_weight"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["weight"]))
     ss.config["account_strategic"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["strategic"]))
+    # A baseline may carry the author's finalised review (tags, sizes, settings).
+    rev = blob.get("review")
+    if rev:
+        try:
+            if rev.get("tickets"):
+                rt = pd.DataFrame(rev["tickets"])
+                keep = [c for c in tk.columns if c in rt.columns]
+                ss.tickets = tk[["request_id"]].merge(rt[keep], on="request_id", how="left").fillna(tk).reindex(columns=tk.columns)
+            if rev.get("clusters"):
+                ss.clusters = pd.DataFrame(rev["clusters"]).reindex(columns=cl.columns)
+            if rev.get("accounts"):
+                ra = pd.DataFrame(rev["accounts"])
+                ss.accounts_df = ss.accounts_df.drop(columns=["weight", "strategic"]).merge(ra[["account", "weight", "strategic"]], on="account", how="left")
+                ss.accounts_df["weight"] = ss.accounts_df["weight"].fillna(3.0); ss.accounts_df["strategic"] = ss.accounts_df["strategic"].fillna(False)
+                ss.config["account_weight"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["weight"]))
+                ss.config["account_strategic"] = dict(zip(ss.accounts_df["account"], ss.accounts_df["strategic"]))
+            if rev.get("config"):
+                for k, v in rev["config"].items():
+                    if k in ("account_weight", "account_strategic"):
+                        continue
+                    ss.config[k] = v
+                for k in list(ss.keys()):
+                    if k.startswith(("ep_", "sv_")) or k == "fill_mode":
+                        del ss[k]
+        except Exception as e:  # a malformed review block should not block the analysis
+            st.warning(f"Baseline review block could not be applied: {e}")
     ss.finalized = False
     _clear("ticket_editor", "cluster_editor", "account_editor")
 
@@ -171,7 +197,7 @@ def reset_backlog_state() -> None:
 with st.sidebar:
     st.header("Status")
     st.write(f"File: {ss.backlog_name or 'none loaded'}")
-    st.write("AI analysis: " + ("loaded" if ss.ai_blob is not None else "not yet"))
+    st.write("Analysis: " + ({"baseline": "author's baseline", "api": "your own run", "seed": "sample"}.get((ss.ai_blob or {}).get("source"), "not yet loaded") if ss.ai_blob is not None else "not yet loaded"))
     st.write("Review: " + ("finalised" if ss.finalized else "open"))
 
     st.divider()
@@ -480,20 +506,41 @@ with st.expander("Model instructions (editable before running)"):
     with st.popover("Fields the model must return"):
         st.json(ai_pass.TOOL_SCHEMA["input_schema"], expanded=False)
 
+baseline = ai_pass.load_baseline(bl)
 cached = ai_pass.load_cache(bl, model, ss.system_prompt)
 cur_hash = ai_pass.prompt_hash(bl, model, ss.system_prompt)
 runs_left = MAX_RUNS_PER_SESSION - ss.ai_runs
 
-b1, b2, b3 = st.columns([1, 1, 2])
-run_api = b1.button(f"Run AI analysis ({runs_left} left this session)", type="primary", disabled=(not api_key) or runs_left <= 0)
-load_cached = b2.button("Load saved analysis", disabled=cached is None)
-b3.caption(f"Model: {model}" + ("  |  custom instructions" if ss.system_prompt != ai_pass.SYSTEM_PROMPT else ""))
+st.markdown("**The author's baseline** is the fixed analysis this submission was written against. It loads by default. "
+            "You can also run your own analysis; the model's reading varies between runs, so your numbers may differ, and your run never replaces the baseline.")
+st.info("**Expect a wait when you run an analysis.** A single run reads all the tickets in one call and typically takes 30 to 90 seconds. "
+        "**Consensus of 3 runs** makes three such calls back to back and then reconciles them, so allow two to five minutes and leave the page open; "
+        "the button greys out while it works and the results appear when all three are done.")
+b1, b2, b3, b4, b5 = st.columns([1.3, 1.1, 1.1, 1, 1.3])
+load_baseline = b1.button("Load the author's baseline", type="primary", disabled=baseline is None)
+run_api = b2.button(f"Run your own analysis ({runs_left} calls left)", disabled=(not api_key) or runs_left <= 0)
+run_cons = b3.button("Consensus of 3 runs", disabled=(not api_key) or runs_left < 3,
+                     help="Runs the analysis three times and keeps what at least two runs agree on: majority on categories, median on confidence, "
+                          "clusters only where two runs put the tickets together, elimination links only where two runs propose them. Three times the cost, far less variance.")
+load_cached = b4.button("Load my last run", disabled=cached is None)
+b5.caption(f"Model: {model}, temperature 0" + ("  |  custom instructions" if ss.system_prompt != ai_pass.SYSTEM_PROMPT else ""))
+if baseline is None:
+    st.caption("No baseline is committed for this file (cache/baseline.json). The author can create one by downloading an analysis below and committing it under that name.")
 
-if run_api:
-    with st.spinner("Reading the backlog..."):
+if load_baseline and baseline:
+    load_proposal(baseline)
+    st.rerun()
+
+if run_api or run_cons:
+    with st.spinner("Consensus mode: reading the backlog three times, then reconciling. This takes a few minutes; please keep the page open." if run_cons
+                    else "Reading the backlog. This usually takes 30 to 90 seconds."):
         try:
-            blob = ai_pass.run_ai_pass(bl, api_key, model, ss.system_prompt)
-            ss.ai_runs += 1
+            if run_cons:
+                blob = ai_pass.run_consensus(bl, api_key, model, ss.system_prompt, n=3)
+                ss.ai_runs += 3
+            else:
+                blob = ai_pass.run_ai_pass(bl, api_key, model, ss.system_prompt)
+                ss.ai_runs += 1
             ai_pass.save_cache(blob)
             load_proposal(blob)
             st.toast(f"Done. Tokens used: {blob['usage']}")
@@ -503,6 +550,10 @@ if run_api:
 
 if load_cached and cached:
     load_proposal(cached)
+    st.rerun()
+
+if ss.ai_blob is None and baseline is not None and not ss.get("baseline_declined"):
+    load_proposal(baseline)
     st.rerun()
 
 if ss.ai_blob is None:
@@ -518,8 +569,16 @@ if ss.ai_blob is None:
 meta = ss.ai_blob
 if meta.get("source") == "seed":
     st.warning("This is the sample analysis that ships with the app, written offline, not a live model run. Run the AI analysis to replace it.")
+elif meta.get("source") == "baseline":
+    st.success(f"Author's baseline loaded: {meta.get('model')}, generated {meta.get('generated_at')}"
+               + (f", consensus of {meta['consensus_of']} runs" if meta.get("consensus_of") else "") + ". This is the analysis the written rationale refers to.")
 else:
-    st.caption(f"Analysis from {meta.get('model')} at {meta.get('generated_at')}.")
+    cons = f" Consensus of {meta['consensus_of']} runs." if meta.get("consensus_of") else ""
+    st.info(f"Your own run: {meta.get('model')} at {meta.get('generated_at')}.{cons} Numbers may differ from the author's baseline. Use 'Load the author's baseline' to return to it.")
+with st.expander("Download this analysis (for committing as a baseline)"):
+    st.caption("The author commits this file as cache/baseline.json in the repo. To include finalised review edits and settings as part of the baseline, "
+               "finalise in step 5 and use the download there instead; it bundles the analysis with the review.")
+    st.download_button("Analysis JSON", json.dumps({k: v for k, v in meta.items() if k != "review"}, indent=2), "baseline.json", "application/json")
 
 acc_raw = meta["result"].get("accounts", [])
 if any("no entry that matched" in str(a.get("evidence", "")) for a in acc_raw):
@@ -814,5 +873,8 @@ else:
     e2.download_button("Summary (markdown)", summary_md, "summary.md", "text/markdown")
     e3.download_button("Changes from the model (CSV)", diff.to_csv(index=False), "changes_from_model.csv", "text/csv")
     e4.download_button("Final tags and settings (JSON)", json.dumps(final_json, indent=2), "finalized.json", "application/json")
+    baseline_bundle = {k: v for k, v in meta.items() if k != "review"}
+    baseline_bundle["review"] = {"tickets": final_json["tickets"], "clusters": final_json["clusters"], "accounts": final_json["accounts"], "config": final_json["config"]}
+    st.download_button("Baseline bundle (analysis + this review) for cache/baseline.json", json.dumps(baseline_bundle, indent=2), "baseline.json", "application/json")
     with st.expander("Preview the summary"):
         st.markdown(summary_md)

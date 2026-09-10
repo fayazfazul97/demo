@@ -89,10 +89,18 @@ def explain_split(scored: pd.DataFrame, clusters: pd.DataFrame, split: dict, con
         try:
             alt_scored, _ = score_backlog(tickets, cluster_df, alt)
             alt_split = capacity_split(alt_scored, alt)
+            low_id = do_p.sort_values("score").iloc[0]["request_id"]
+            still = alt_scored.loc[alt_scored["request_id"] == low_id].iloc[0]
+            if still["bucket"] == "Do now":
+                outcome = (f"{low_id} would no longer clear the threshold on merit but would be pulled back in on spare capacity, "
+                           f"so the split would be {alt_split['reactive_pct']}/{alt_split['proactive_pct']}. "
+                           "With spare-capacity fill on, the threshold acts as a quality floor; capacity is what decides funding.")
+            else:
+                outcome = (f"{low_id} would drop out and the split would become {alt_split['reactive_pct']}/{alt_split['proactive_pct']}. "
+                           "The proactive share depends on where that threshold sits.")
             lines.append("")
-            lines.append(f"**Sensitivity:** if the priority threshold moved from {config['do_now_threshold']:g} to {alt['do_now_threshold']:g}, "
-                         f"the lowest-scoring proactive item would drop out and the split would become {alt_split['reactive_pct']}/{alt_split['proactive_pct']}. "
-                         "The proactive share depends on where that threshold sits. The setting can be adjusted in the sidebar to test alternatives.")
+            lines.append(f"**Sensitivity:** if the priority threshold moved from {config['do_now_threshold']:g} to {alt['do_now_threshold']:g}, {outcome} "
+                         "The setting can be adjusted in the sidebar to test alternatives.")
         except Exception:
             pass
     return "\n".join(lines)
@@ -123,20 +131,22 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         "- Severity is based on the figures and facts in the notes, not on the urgency of the tone. Where the two disagree, the notes prevail"
         + (f"; {len(flagged)} tickets carry a note flagging a judgement for the reviewer: {', '.join(flagged)}." if flagged else "."),
         f"- Effort turns into points of work: small {ep['small']:g}, 1-2 sprints {ep['1-2 sprints']:g}, large {ep['large']:g}. Team capacity is counted in the same effort points. Severity is a separate multiplier (low 1, medium 2, high 3), not work. "
-        f"When effort is unclear it is not estimated; {ep['unclear']:g} point is allocated to a time-boxed investigation, provided the impact justifies it"
+        "Account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one; that is a deliberate bias towards revenue at risk. "
+        f"When effort is unclear it is never scored as if known; {ep['unclear']:g} point is allocated to a time-boxed investigation if the impact is at least {config['discovery_min_impact']:g}, otherwise the item is declined for the quarter"
         + (f". Effort unclear right now: {', '.join(unclear)}." if unclear else "."),
         "- \"Next quarter\" refers to the quarter following the latest date_received in the file.",
         "",
         "**About the clusters (tickets that share one root cause)**",
         "- A cluster is a hypothesis that several tickets share one root cause and one fix, so the effort is counted once. Engineering has not confirmed any of them. "
-        "If a cluster is wrong, one fix has been over-credited and the effort under-counted.",
+        "If a cluster is wrong, one fix has been over-credited and the effort under-counted. A handed-off member adds no impact to its cluster and carries none of its cost.",
         (f"- Clusters with confidence below 0.6, to be treated as hypotheses: {', '.join(low_conf)}." if low_conf else "- Every cluster has confidence of 0.6 or above."),
         "",
         "**About proactive items**",
         "- A proactive item is credited only for reactive tickets in this backlog that it would eliminate or stop from recurring. Detecting a problem sooner is not the same as fixing it. "
         "Where the model proposed a detection-only link, the ticket's note says so and the reviewer decides.",
-        f"- Current links: {retire_note or 'none'}.",
-        f"- Proactive items linked to a named company metric receive a {config['metric_bonus']:g}x bonus. A useful item with no named metric receives no bonus.",
+        f"- Current links: {retire_note or 'none'}. This list is the single biggest lever on the proactive share; it is a hypothesis about what each item would prevent.",
+        (f"- Proactive items with a named company metric receive a {config['metric_bonus']:g}x bonus, which rewards measurability (urgency is already in severity)." if config['metric_bonus'] != 1
+         else "- No metric bonus is applied (set to 1.0). Urgency of the metric problem is captured in severity; a bonus would count it twice."),
         "",
         "**About capacity and the split**",
         f"- Team capacity is {config['quarter_capacity_points']:g} points this quarter"
@@ -146,7 +156,7 @@ def list_assumptions(scored: pd.DataFrame, clusters: pd.DataFrame, config: dict,
         "on the assumption that support, infrastructure or the PM group take them on.",
         f"- The priority threshold ({config['do_now_threshold']:g}"
         + (f", default {DEFAULT_CONFIG['do_now_threshold']:g}, changed in the sidebar" if config['do_now_threshold'] != DEFAULT_CONFIG['do_now_threshold'] else ", the default, adjustable in the sidebar")
-        + ") is a chosen value, not derived from the data. The sensitivity note in the rationale shows the effect of moving it.",
+        + ") is a chosen value, not derived from the data. With spare-capacity fill on, it acts as a quality floor for what can be pulled up; capacity is what decides funding. The sensitivity note in the rationale shows the effect of moving it.",
         {"later": "- Spare capacity is filled from 'Later' with the best-scoring items that fit, so the quarter is fully allocated. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
          "later_and_declined": "- Spare capacity is filled from 'Later' and 'Not this quarter' with the best-scoring items that fit. Items funded this way are marked 'pulled up' and are the first to drop if capacity tightens.",
          "off": "- Spare capacity is left unallocated; nothing below the threshold is funded."}[config.get("fill_spare_capacity", "later")],
@@ -222,7 +232,7 @@ def build_summary(scored, clusters, split, config, diff, ai_meta, observations, 
         "score = impact x confidence / effort.",
         "Impact = account size (1 to 5) x severity, a multiplier (low 1, medium 2, high 3). Effort is in points of work, and team capacity is measured in the same effort points. "
         "Tickets that share one root cause are scored as a cluster: their impact is summed, the effort is counted once, and every ticket in the cluster receives the cluster's score.",
-        "Proactive items receive their own impact plus the impact of every reactive ticket they would eliminate, multiplied by a bonus if linked to a company metric.",
+        "Proactive items receive their own impact plus the impact of every reactive ticket they would eliminate (times the metric bonus, if one is set). Handed-off cluster members add no impact and carry no cost. Unclear effort is never scored as if known.",
         "Categories: " + " ".join(f"{b}: {BUCKET_HELP[b]}" for b in BUCKET_ORDER),
         "",
         "## Settings used",

@@ -50,7 +50,9 @@ Proactive items:
 
     score = (own impact + impact of the reactive tickets it retires) x metric_bonus x confidence / effort_points
 
-Categories, checked in order: Hand off (not engineering work) -> Investigate first (effort unclear, low confidence, enough impact) -> Do now (score >= priority threshold) -> Later (within the band below the line) -> Not this quarter. Do-now items spill to Later when committed points exceed quarter capacity.
+metric_bonus defaults to 1.0 (off): urgency is already in severity. Handed-off cluster members add no impact to the cluster and carry none of its cost.
+
+Categories, checked in order: Hand off (not engineering work) -> Investigate first (effort unclear and impact above the floor; unclear effort is never scored as known) -> Do now (score >= priority threshold) -> Later (within the band below the threshold) -> Not this quarter. Do-now items spill to Later when committed points exceed quarter capacity.
 
 The split is the share of allocated effort points (Do now + Investigate first) by classification. Spare capacity is filled from Later (configurable) so the quarter is fully allocated. Handed-off work is excluded because it is not roadmap capacity.
 

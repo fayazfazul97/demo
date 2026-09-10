@@ -69,12 +69,22 @@ def graph_payload(tickets: pd.DataFrame, clusters: pd.DataFrame, scored: pd.Data
         score_by = dict(zip(scored["request_id"], scored["score"]))
         bucket_by = dict(zip(scored["request_id"], scored["bucket"].astype(str)))
     nodes, links = [], []
+
+    def txt(v) -> str:
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+
     for _, c in clusters.iterrows():
-        nodes.append({"id": str(c["cluster_id"]), "label": str(c.get("label", "") or c["cluster_id"]), "type": "cluster"})
+        nodes.append({"id": str(c["cluster_id"]), "label": txt(c.get("label")) or str(c["cluster_id"]), "type": "cluster",
+                      "effort": txt(c.get("effort_bucket")), "confidence": float(c.get("confidence") or 0),
+                      "hypothesis": txt(c.get("root_cause_hypothesis")), "evidence": txt(c.get("evidence"))})
     cluster_ids = {n["id"] for n in nodes}
     for _, t in tickets.iterrows():
-        nodes.append({"id": t["request_id"], "type": "ticket", "classification": t["classification"], "account": t.get("source_account", ""),
-                      "score": float(score_by.get(t["request_id"], 0) or 0), "bucket": bucket_by.get(t["request_id"], "")})
+        nodes.append({"id": t["request_id"], "type": "ticket", "classification": t["classification"], "account": txt(t.get("source_account")),
+                      "score": float(score_by.get(t["request_id"], 0) or 0), "bucket": bucket_by.get(t["request_id"], ""),
+                      "summary": txt(t.get("summary")), "severity": txt(t.get("severity")), "confidence": float(t.get("confidence") or 0),
+                      "effort": txt(t.get("effort_bucket")), "redirect": bool(t.get("redirect")), "metric_linked": bool(t.get("metric_linked")),
+                      "reason": txt(t.get("reason")), "flag": txt(t.get("ambiguity_note")), "note": txt(t.get("reviewer_note")),
+                      "cluster": txt(t.get("cluster_id"))})
         cid = str(t.get("cluster_id") or "").strip()
         if t["classification"] == "reactive" and cid and cid in cluster_ids:
             links.append({"source": t["request_id"], "target": cid, "kind": "member"})
@@ -526,7 +536,7 @@ ss._pending_tickets = working_tickets
 
 # ---- 3d cluster map ----
 st.subheader("3d. Cluster map")
-st.caption("The same clusters and tickets as the tables above, as a map. Drag to rearrange. "
+st.caption("The same clusters and tickets as the tables above, as a map. Click a node for its details. Scroll to zoom, drag the background to pan, drag nodes to rearrange. "
            + ("Locked while finalised." if locked else "Drag a reactive ticket onto a cluster to assign it, drag a proactive ticket onto a reactive one to mark it as eliminated, click a line to remove it, double-click empty space to add a cluster. Edits update the tables."))
 try:
     _preview_scored, _ = score_backlog(working_tickets, working_clusters, config)

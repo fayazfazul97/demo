@@ -187,6 +187,8 @@ with st.sidebar:
         st.caption("API key is set on the server.")
     else:
         api_key = st.text_input("API key", type="password", help="Only needed to run the AI pass.")
+        if not api_key:
+            st.caption(f"No API key configured. The saved analysis still loads. To run a fresh analysis, {ai_pass.CONTACT[0].lower()}{ai_pass.CONTACT[1:]}")
     model = ai_pass.DEFAULT_MODEL
     st.caption(f"Model: {model}")
 
@@ -497,7 +499,7 @@ if run_api:
             st.toast(f"Done. Tokens used: {blob['usage']}")
             st.rerun()
         except Exception as e:
-            st.error(f"The AI pass failed: {e}")
+            st.error(ai_pass.friendly_error(e))
 
 if load_cached and cached:
     load_proposal(cached)

@@ -38,6 +38,18 @@ Note: the `cache/ai_pass.json` in this repo is a seed drafted offline from the s
 
 When a key is present in Secrets the sidebar hides the key field and shows "API key is configured on the server". Each browser session can trigger the AI pass at most 3 times (`MAX_RUNS_PER_SESSION` in `app.py`). Set a monthly spend limit on the key in the API console before sharing the link publicly. Cached proposals are saved per dataset (`cache/ai_pass_<hash>.json`) and the host's disk is ephemeral, so they reset on redeploy; that is fine, it is a cache.
 
+## Reducing run-to-run variance
+
+- Temperature is sent as 0 (via `extra_body`, since the 1.0 SDK removed the keyword). Override with `BET_SCORER_TEMPERATURE`.
+- Confidence is anchored to four named levels (0.9 / 0.7 / 0.5 / 0.3) with a rubric, so it is a lookup rather than a guess.
+- "Consensus of 3 runs" in step 2 runs the analysis three times and keeps what a majority agrees on: majority on categorical fields, median on confidence, clusters only where two runs put the tickets together, elimination links only where two runs propose them. Disagreements are written into the ticket's flag. Three times the cost.
+
+## The author's baseline
+
+`cache/baseline.json` is the fixed analysis the written rationale refers to. When a reviewer loads the bundled backlog it is loaded automatically and labelled as the author's baseline. Reviewers can run their own analysis (the model's reading varies between runs), but their run is kept separately and never replaces the baseline.
+
+To create or update the baseline: run an analysis, optionally review and finalise, then download "Baseline bundle" from step 5 (or "Analysis JSON" from step 2 for the raw analysis without review edits) and commit it as `cache/baseline.json`.
+
 ## Scoring
 
 Reactive tickets are scored at the root-cause cluster level, not one by one:

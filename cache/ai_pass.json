@@ -1,7 +1,7 @@
 {
   "source": "seed",
-  "model": "seed: proposal drafted offline on 2026-09-08 from the same prompt definitions, not a live model run. Replace by running the AI pass.",
-  "generated_at": "2026-09-08T00:00:00+00:00",
+  "model": "seed: proposal drafted offline on 2026-09-10 from the current prompt definitions, not a live model run. Replace by running the AI pass.",
+  "generated_at": "2026-09-10T00:00:00+00:00",
   "prompt_hash": "seed",
   "usage": {
     "input_tokens": 0,
@@ -34,8 +34,8 @@
         "source_account": "Cobalt Hospitality",
         "tier": "mid",
         "evidence": "'mid-size but growing fast' (TRQ-1044), 'Cobalt tier: mid-size' (TRQ-1050)",
-        "suggested_weight": 3,
-        "weight_reason": "Mid-size and growing with a churn-risk flag; kept at 3, a reviewer could argue 4."
+        "suggested_weight": 4,
+        "weight_reason": "Mid-size (guide 3), moved to 4: CS flagged a churn risk (TRQ-1044) and the account is growing fast."
       },
       {
         "source_account": "Oakmere Culinary Supply",
@@ -139,7 +139,7 @@
         "metric_linked": false,
         "retires": [],
         "reason": "Top-5 account, 15% of orders failing, blocks POs before month-end close. Correlates with SKUs from the last sync and our last release, so likely a field-mapping regression that is small to fix once isolated.",
-        "ambiguity_note": "Effort hint is 'unclear'; tagged small on the strength of the regression signal. If the mapping is not the cause, re-estimate."
+        "ambiguity_note": "Effort hint overridden: hint says 'unclear' but the notes name a plausible cause (field-mapping regression from our last release), so tagged small. If the mapping is not the cause, re-estimate."
       },
       {
         "request_id": "TRQ-1043",
@@ -151,7 +151,7 @@
         "redirect": false,
         "metric_linked": false,
         "retires": [],
-        "reason": "Third occurrence this quarter, causes double shipments and manual credit memos. Shares the timeout-retry mechanism with TRQ-1054.",
+        "reason": "Third occurrence this quarter (repeat), causes double shipments and manual credit memos. Shares the timeout-retry mechanism with TRQ-1054.",
         "ambiguity_note": "Root cause is 'suspected', not confirmed. Notes attribute retry to Northwind's ERP; TRQ-1054 suggests Trellis-side too."
       },
       {
@@ -190,7 +190,7 @@
         "redirect": false,
         "metric_linked": false,
         "retires": [],
-        "reason": "Enterprise account, missed delivery windows for events, exec on the thread. Same logic bug as TRQ-1060.",
+        "reason": "Enterprise account, missed delivery windows for events, which is a relationship risk; exec on the thread noted but not the basis for severity. Same logic bug as TRQ-1060.",
         "ambiguity_note": ""
       },
       {
@@ -229,7 +229,7 @@
         "redirect": true,
         "metric_linked": false,
         "retires": [],
-        "reason": "Our own rate-limit config is backing up their month-end orders and their ops manager is threatening VP escalation. This is a config change, not product work; redirect to support/infra today.",
+        "reason": "Our own rate-limit config is backing up their month-end orders; escalation threat noted but severity is on the blocked orders, not the threat. Config change, not product work; redirect to support/infra today.",
         "ambiguity_note": ""
       },
       {
@@ -268,7 +268,7 @@
         "redirect": false,
         "metric_linked": false,
         "retires": [],
-        "reason": "Enterprise account, second tag complaint in 60 days, possibly systemic across seasonal SKUs.",
+        "reason": "Enterprise account, second tag complaint in 60 days (repeat), possibly systemic across seasonal SKUs.",
         "ambiguity_note": "Unknown whether the seasonal-SKU problem is account-specific or platform-wide; the cluster assumes platform-wide."
       },
       {
@@ -294,7 +294,7 @@
         "redirect": false,
         "metric_linked": false,
         "retires": [],
-        "reason": "Top-5 account, weekly duplicate orders, open informally for weeks, IT lead wants a permanent fix. Same mechanism as TRQ-1043.",
+        "reason": "Top-5 account, weekly duplicate orders, open informally for weeks with no permanent owner, IT lead wants a permanent fix. Same mechanism as TRQ-1043.",
         "ambiguity_note": ""
       },
       {
@@ -332,12 +332,9 @@
         "effort_bucket": "large",
         "redirect": false,
         "metric_linked": true,
-        "retires": [
-          "TRQ-1053",
-          "TRQ-1068"
-        ],
-        "reason": "Standing-order health score. Retention metric is down ~4pts over two quarters, which is the only declining company metric in the backlog. Failure-rate monitoring would surface silent scheduler failures like TRQ-1053/1068 before accounts do.",
-        "ambiguity_note": "It detects TRQ-1053/1068 rather than fixing them; reviewer may want to drop those from 'retires'. Summary says 'pilot' but the effort hint says large multi-quarter; a pilot scoped to 1-2 sprints would score very differently."
+        "retires": [],
+        "reason": "Standing-order health score. Retention is down ~4pts over two quarters, the only declining company metric in the backlog. No reactive tickets credited as retired, because monitoring detects rather than fixes.",
+        "ambiguity_note": "Detection-only link left out of retires: a failure-rate health score would surface silent scheduler failures like TRQ-1053/1068 sooner but would not fix them; the reviewer may add them. Summary says 'pilot' but the effort hint says large multi-quarter; a pilot scoped to 1-2 sprints would score very differently."
       },
       {
         "request_id": "TRQ-1058",
@@ -350,7 +347,7 @@
         "metric_linked": false,
         "retires": [],
         "reason": "Enterprise, event-driven ordering, exec sponsor has raised it twice. Same symptom as TRQ-1047 on a small account, so probably systemic.",
-        "ambiguity_note": "Effort hint is 1-2 sprints but no cause is identified; the cluster overrides to 'unclear' and asks for a spike first."
+        "ambiguity_note": "Effort hint overridden: hint says 1-2 sprints but no cause is identified, so the cluster is 'unclear' and needs an investigation first. Exec sponsor has raised it twice (repeat)."
       },
       {
         "request_id": "TRQ-1059",
@@ -401,7 +398,7 @@
         "redirect": true,
         "metric_linked": false,
         "retires": [],
-        "reason": "Add the new ERP's IP range to the allowlist. Config change that has sat for three weeks. Redirect and set an SLA so this stops reaching the product backlog.",
+        "reason": "Add the new ERP's IP range to the allowlist. Config change that has sat unassigned for three weeks. Redirect and set an SLA so this stops reaching the product backlog.",
         "ambiguity_note": ""
       },
       {
@@ -494,7 +491,8 @@
       "Two tickets marked URGENT by the account (TRQ-1050, TRQ-1061) affect under 2% of orders or a handful of transactions per week by Trellis's own logs. Stated urgency and measured impact disagree.",
       "Two items (TRQ-1049, TRQ-1062) are Trellis-side configuration, not bugs, and have been waiting weeks. That is a support/infra ownership gap, not a roadmap question.",
       "Inventory-sync mismatches appear on both the smallest account (TRQ-1047) and an enterprise account (TRQ-1058), which is the strongest evidence in the backlog for a systemic issue with no identified cause.",
-      "The proactive items with the best case (TRQ-1063, TRQ-1057) have no external advocate; the reactive items with the loudest advocates (TRQ-1050, TRQ-1061, TRQ-1049) are among the smallest by measured impact."
+      "The proactive items with the best case (TRQ-1063, TRQ-1057) have no external advocate; the reactive items with the loudest advocates (TRQ-1050, TRQ-1061, TRQ-1049) are among the smallest by measured impact.",
+      "Proactive-to-reactive mapping: TRQ-1063 retires the tag_mapping cluster (1044, 1052, 1066) and possibly 1059; TRQ-1057 would detect but not fix the silent_scheduler cluster (1053, 1068); TRQ-1045 maps to no ticket in this backlog."
     ]
   }
 }

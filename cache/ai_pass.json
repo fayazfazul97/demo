@@ -61,7 +61,7 @@
           "TRQ-1060"
         ],
         "root_cause_hypothesis": "Standing-order scheduler resolves lead time across suppliers with the wrong aggregate (shortest instead of longest), so orders land late for one account and early for another.",
-        "evidence": "TRQ-1046 notes 'not picking the longest lead-time item correctly when an order spans multiple suppliers'; TRQ-1060 notes 'shortest lead time across suppliers instead of the longest' and explicitly calls it the inverse of TRQ-1046.",
+        "evidence": "TRQ-1046 notes 'not picking the longest lead-time item correctly when an order spans multiple suppliers'; TRQ-1060 notes 'shortest lead time across suppliers instead of the longest' and explicitly calls it the inverse of TRQ-1046. Effort from both members' hints (1-2 sprints), which agree.",
         "effort_bucket": "1-2 sprints",
         "confidence": 0.75
       },
@@ -73,7 +73,7 @@
           "TRQ-1068"
         ],
         "root_cause_hypothesis": "Scheduler task can fail without raising an error or notification; TRQ-1053 is confirmed, TRQ-1068 has the same signature. Immediate fix is alerting on scheduler failures; the scheduler root cause is a second, separate item.",
-        "evidence": "TRQ-1053: 'scheduler task that silently failed with no alerting'; TRQ-1068: 'skip a scheduled week entirely with no failure notification' and notes 'similar signature to TRQ-1053'.",
+        "evidence": "TRQ-1053: 'scheduler task that silently failed with no alerting'; TRQ-1068: 'skip a scheduled week entirely with no failure notification' and notes 'similar signature to TRQ-1053'. Effort taken from TRQ-1053's hint (small; its notes identify the failure), not TRQ-1068's 'unclear'.",
         "effort_bucket": "small",
         "confidence": 0.6
       },
@@ -86,7 +86,7 @@
           "TRQ-1066"
         ],
         "root_cause_hypothesis": "Supplier catalog tags drift from operator commodity codes, especially after catalog migrations and on seasonal SKUs. Not one bug; one recurring data-quality pattern with the same fix path (bulk re-tag now, self-serve tooling later).",
-        "evidence": "TRQ-1044 (40+ SKUs, reorder suggestions wrong), TRQ-1052 (seasonal produce, 'possibly a systemic tagging issue'), TRQ-1066 (~200 SKUs after supplier migration). TRQ-1063 notes the pattern is 'seen across nearly every account this quarter'.",
+        "evidence": "TRQ-1044 (40+ SKUs, reorder suggestions wrong), TRQ-1052 (seasonal produce, 'possibly a systemic tagging issue'), TRQ-1066 (~200 SKUs after supplier migration). TRQ-1063 notes the pattern is 'seen across nearly every account this quarter'. Effort from TRQ-1066's hint (1-2 sprints, mostly data work); TRQ-1044 is 'small' and TRQ-1052 'unclear'.",
         "effort_bucket": "1-2 sprints",
         "confidence": 0.5
       },
@@ -98,7 +98,7 @@
           "TRQ-1054"
         ],
         "root_cause_hypothesis": "When a customer ERP times out, Trellis (or the ERP) retries and the order is submitted twice. Likely fix is idempotency keys on order submission, which covers both accounts regardless of whose retry fires.",
-        "evidence": "TRQ-1043: 'retry logic firing when Northwind's ERP times out'; TRQ-1054: 'SAP integration is timing out intermittently, causing orders to be submitted twice'. Both are duplicate-order-on-timeout.",
+        "evidence": "TRQ-1043: 'retry logic firing when Northwind's ERP times out'; TRQ-1054: 'SAP integration is timing out intermittently, causing orders to be submitted twice'. Both are duplicate-order-on-timeout. Effort from both members' hints (1-2 sprints), which agree.",
         "effort_bucket": "1-2 sprints",
         "confidence": 0.6
       },
@@ -122,7 +122,7 @@
           "TRQ-1058"
         ],
         "root_cause_hypothesis": "Inventory sync lag or flakiness lets out-of-stock or backordered items show as in stock. Two accounts of very different size report it, which supports the 'broader sync-flakiness pattern' guess in TRQ-1047. Cause is unknown; needs a discovery spike before an effort estimate is credible.",
-        "evidence": "TRQ-1047: 'inventory status shown to their buyers doesn't match what's actually available'; TRQ-1058: 'seeing in stock items that are actually backordered'.",
+        "evidence": "TRQ-1047: 'inventory status shown to their buyers doesn't match what's actually available'; TRQ-1058: 'seeing in stock items that are actually backordered'. Effort 'unclear' from TRQ-1047's hint; TRQ-1058's '1-2 sprints' hint is overridden because no cause is identified.",
         "effort_bucket": "unclear",
         "confidence": 0.45
       }
@@ -133,13 +133,13 @@
         "classification": "reactive",
         "cluster_id": "",
         "severity": "high",
-        "confidence": 0.7,
-        "effort_bucket": "small",
+        "confidence": 0.6,
+        "effort_bucket": "unclear",
         "redirect": false,
         "metric_linked": false,
         "retires": [],
-        "reason": "Top-5 account, 15% of orders failing, blocks POs before month-end close. Correlates with SKUs from the last sync and our last release, so likely a field-mapping regression that is small to fix once isolated.",
-        "ambiguity_note": "Effort hint overridden: hint says 'unclear' but the notes name a plausible cause (field-mapping regression from our last release), so tagged small. If the mapping is not the cause, re-estimate."
+        "reason": "Top-5 account, 15% of orders failing, blocks POs before month-end close. Correlates with SKUs from the last sync and our last release, so a field-mapping regression is the leading suspect, but it is not confirmed. Hint kept at unclear; the investigation is urgent and should start today.",
+        "ambiguity_note": "Effort hint 'unclear' kept: the notes name a likely cause ('could be a punchout field-mapping mismatch') but do not confirm it. Expect a small fix once confirmed; re-estimate then."
       },
       {
         "request_id": "TRQ-1043",
@@ -347,7 +347,7 @@
         "metric_linked": false,
         "retires": [],
         "reason": "Enterprise, event-driven ordering, exec sponsor has raised it twice. Same symptom as TRQ-1047 on a small account, so probably systemic.",
-        "ambiguity_note": "Effort hint overridden: hint says 1-2 sprints but no cause is identified, so the cluster is 'unclear' and needs an investigation first. Exec sponsor has raised it twice (repeat)."
+        "ambiguity_note": "Cluster effort set to 'unclear' from TRQ-1047's hint, overriding this ticket's '1-2 sprints' hint: neither ticket identifies a cause, so a sized estimate would be a guess. Exec sponsor has raised it twice (repeat)."
       },
       {
         "request_id": "TRQ-1059",

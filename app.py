@@ -196,7 +196,7 @@ with st.sidebar:
     cfg = ss.config
     cfg["do_now_threshold"] = st.slider("Priority threshold (score required for 'Do now')", 0.5, 10.0, float(cfg["do_now_threshold"]), 0.25)
     cfg["quarter_capacity_points"] = st.number_input("Team capacity this quarter (effort points)", 1, 200, int(cfg["quarter_capacity_points"]))
-    cfg["strategic_multiplier"] = st.slider("Strategic account multiplier (1.0 = off)", 1.0, 2.0, float(cfg["strategic_multiplier"]), 0.05,
+    cfg["strategic_multiplier"] = st.slider("Strategic account multiplier (default 1.25, 1.0 = off)", 1.0, 2.0, float(cfg["strategic_multiplier"]), 0.05,
                                             help="Applied to the impact of every ticket from an account marked strategic in step 3a.")
     cfg["metric_bonus"] = st.slider("Bonus for proactive items with a named metric (1.0 = off)", 1.0, 3.0, float(cfg["metric_bonus"]), 0.1)
     fill_labels = {"later": "Pull from Later", "later_and_declined": "Pull from Later and Not this quarter", "off": "Leave unallocated"}
@@ -260,13 +260,52 @@ with st.expander("How the score works"):
         return fmt.format(v) if v == dv else f"{fmt.format(v)} (default {fmt.format(dv)})"
 
     sev = c["severity_scale"]; ep = c["effort_points"]
+    analysed = ss.ai_blob is not None
+    smult_txt = f"{c['strategic_multiplier']:g}" + (" (the default)" if c["strategic_multiplier"] == d["strategic_multiplier"] else f" (default {d['strategic_multiplier']:g})")
     strat_txt = f" × {c['strategic_multiplier']:g} for strategic accounts" if c["strategic_multiplier"] != 1 else ""
     bonus_txt = f" × {c['metric_bonus']:g} if it names a company metric" if c["metric_bonus"] != 1 else ""
+    if analysed:
+        size_now = ", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))
+        strat_now = ", ".join(k for k, v in sorted(c["account_strategic"].items()) if v) or "none"
+    else:
+        size_now = "not set yet; proposed by the model in step 2 (example: small account 1, mid-market 3, top account 5)"
+        strat_now = "not set yet; proposed by the model in step 2 (example: a fast-growing mid-market account)"
 
     st.markdown(f"""
-*Numbers below are the current settings. Where one has been changed, the default is shown in brackets. All of them live in the sidebar except account size and the strategic flag, which are in step 3a.*
+*Numbers below are the current settings. Where one has been changed from its default, the default is shown in brackets. All of them live in the sidebar except account size and the strategic flag, which the model proposes and you edit in step 3a. Worked examples in this section are illustrative, and the bundled Trellis backlog is sample data.*
 
-#### 1. Every ticket gets one score
+#### The complete formula
+
+```
+impact(ticket) = account_size × severity{" × strategic_multiplier   (only if the account is strategic)" if c["strategic_multiplier"] != 1 else ""}
+
+Reactive ticket, not in a cluster
+    score = impact(ticket) × confidence ÷ effort_points
+    cost  = effort_points
+
+Reactive ticket in a cluster (all members share one fix)
+    cluster_impact = sum of impact(member)   over members not handed off
+    score(member)  = cluster_impact × cluster_confidence ÷ cluster_effort_points
+    cost(member)   = cluster_effort_points ÷ number of members not handed off
+
+Proactive item (team initiative)
+    impact = (account_size[Internal] × severity)
+           + sum of impact(reactive ticket it eliminates){chr(10) + "    impact = impact × metric_bonus                (only if it names a company metric)" if c["metric_bonus"] != 1 else ""}
+    score  = impact × confidence ÷ effort_points
+    cost   = effort_points
+```
+
+Handed-off tickets are not scored and carry no cost. Tickets with unclear effort are not scored either; they go to "Investigate first" (cost {ep["unclear"]:g} point) or "Not this quarter".
+
+*Illustrative examples from the bundled sample data, with sizes top 5, mid 3, small 1 and severity high 3, medium 2, low 1:*
+
+- *Reactive, alone.* A top account (5), high severity (3), confidence 0.7, small effort (1): score = 5 × 3 × 0.7 ÷ 1 = **10.5**.
+- *Reactive, clustered.* Two top-tier tickets, one high (5 × 3 = 15) and one medium (5 × 2 = 10), share one fix at confidence 0.75 and 1-2 sprints (3): cluster impact 25, score = 25 × 0.75 ÷ 3 = **6.25** for each ticket; each carries 1.5 of the 3 points.
+- *Proactive.* An internal initiative (3 × high 3 = 9) that would eliminate four reactive tickets worth 9 + 10 + 10 + 1 = 30, at confidence 0.7 and large effort (8): impact 39, score = 39 × 0.7 ÷ 8 = **3.41**. No metric bonus because its notes name no metric.
+
+#### Breaking it down
+
+##### 1. Every ticket gets one score
 
 ```
 score = impact × confidence ÷ effort
@@ -279,30 +318,30 @@ Higher score, higher priority.
 | **Impact** | account size × severity{strat_txt} | see below |
 | **Account size** | the account's revenue tier, and nothing else | 1 small · 3 mid · 5 top / enterprise |
 | **Severity** | how bad the problem is, judged on the figures in the notes, not the tone of the email | low {sev["low"]:g} · medium {sev["medium"]:g} · high {sev["high"]:g} (a multiplier, not work) |
-| **Strategic** | the account matters beyond its tier: fast growth, reference customer, regulatory or partnership relationship, market entry | × {c["strategic_multiplier"]:g} (1.0 = off) |
+| **Strategic** | the account matters beyond its tier: fast growth, reference customer, regulatory or partnership relationship, market entry | × {smult_txt}; adjustable in the sidebar, 1.0 = off |
 | **Confidence** | how well the cause and the fix are understood | 0 to 1 |
 | **Effort** | the team's rough_effort_hint, trusted by default; the model overrides it only with a specific reason, and flags the override | small {ep["small"]:g} · 1-2 sprints {ep["1-2 sprints"]:g} · large {ep["large"]:g} effort points |
 
 Two things to notice in that table. Account size runs 1 to 5 and severity 1 to 3, so a large account's minor issue can outrank a small account's serious one; that is a deliberate bias towards revenue at risk. And churn risk, escalations and executive involvement are per-ticket facts that live in severity; they are never folded into size or the strategic flag, so nothing is counted twice.
 
-#### 2. Tickets that share one root cause are scored as a cluster
+##### 2. Tickets that share one root cause are scored as a cluster
 
 - Their impact is added up.
 - The effort is counted once (the cluster's effort, taken from the members' hints).
 - Every ticket in the cluster gets the cluster's score and an equal share of its cost.
 - A member that has been handed off adds no impact and carries no cost.
 
-One fix that closes three tickets is worth three tickets. That is why clustering is the highest-leverage judgement in the review.
+For example, one fix that closes three tickets is worth three tickets. That is why clustering is the highest-leverage judgement in the review.
 
-#### 3. Proactive items earn credit for what they eliminate
+##### 3. Proactive items earn credit for what they eliminate
 
 ```
 impact = own impact + impact of every reactive ticket it would eliminate{bonus_txt}
 ```
 
-An item that eliminates a whole cluster is scored on the combined impact of that cluster, which is how a structural fix can outrank a single loud request. The "eliminates" list is the single biggest lever on the proactive share and is a hypothesis: it should be reviewed, not accepted. The metric bonus is off by default because urgency is already in severity; turning it on rewards measurability.
+For example, an item that eliminates a whole cluster is scored on the combined impact of that cluster, which is how a structural fix can outrank a single loud request. The "eliminates" list is the single biggest lever on the proactive share and is a hypothesis: it should be reviewed, not accepted. The metric bonus is off by default because urgency is already in severity; turning it on rewards measurability.
 
-#### 4. Each ticket lands in one of five categories, checked in this order
+##### 4. Each ticket lands in one of five categories, checked in this order
 
 | | Category | Rule |
 |---|---|---|
@@ -312,25 +351,25 @@ An item that eliminates a whole cluster is scored on the combined impact of that
 | 4 | **Later** | Score of {round(c["do_now_threshold"] * c["defer_ratio"], 2):g} or more. Deferred; revisited if capacity allows. |
 | 5 | **Not this quarter** | Everything else. Declined for this cycle. |
 
-#### 5. Filling the quarter
+##### 5. Filling the quarter
 
 Team capacity is **{cur("quarter_capacity_points")} effort points** (same unit as effort). "Do now" items are taken in score order until capacity is used; anything that does not fit moves to "Later". If points remain, the best-scoring items from "Later" (and, if enabled, "Not this quarter") that fit are pulled into "Do now" so capacity is not left unused. They carry a "pulled up" note, and the rationale says they were funded on spare capacity rather than merit.
 
 This means the priority threshold is a **quality floor**, not the thing that decides funding. Capacity decides funding; the threshold decides what is good enough to be pulled up. "Large" effort counts as this quarter's slice of a multi-quarter build.
 
-#### 6. The split
+##### 6. The split
 
 The share of allocated effort points going to reactive (customer requests) versus proactive (team initiatives) work. Handed-off work is excluded because it does not consume engineering capacity.
 
-#### Settings
+##### Settings
 
 | Setting | Where | Now | What changing it does |
 |---|---|---|---|
-| Account size | Step 3a | {", ".join(f"{k} {v:g}" for k, v in sorted(c["account_weight"].items()))} | The biggest lever. Bigger accounts push their tickets up. |
-| Strategic flag | Step 3a | {", ".join(k for k, v in sorted(c["account_strategic"].items()) if v) or "none"} | Multiplies every ticket from that account. |
-| Strategic multiplier | Sidebar | {c["strategic_multiplier"]:g} | Off at 1.0. |
+| Account size | Step 3a | {size_now} | The biggest lever. Bigger accounts push their tickets up. |
+| Strategic flag | Step 3a | {strat_now} | Multiplies every ticket from that account by the strategic multiplier. |
+| Strategic multiplier | Sidebar | {smult_txt} | Applied to strategic accounts' tickets. Off at 1.0. |
 | Priority threshold | Sidebar | {cur("do_now_threshold")} | The quality floor. Lower it and more qualifies, usually more proactive work. |
-| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter. Default assumes five people, six two-week sprints, about five points per sprint after support load. |
+| Team capacity | Sidebar | {cur("quarter_capacity_points")} | Effort points available this quarter. The default is an example assumption: five people, six two-week sprints, about five points per sprint after support load. |
 | Spare capacity | Sidebar | {c["fill_spare_capacity"]} | Fill leftover capacity from lower categories, or leave it unallocated. |
 | Metric bonus | Sidebar | {c["metric_bonus"]:g} | Off at 1.0. Raise it to favour proactive items with a named metric. |
 | 'Later' band | Sidebar | {c["defer_ratio"]:g} | How far below the threshold still counts as "Later" rather than "Not this quarter". |
@@ -472,7 +511,7 @@ else:
 st.subheader("3a. Account size")
 st.caption("The model read the notes for size indicators and proposed an account size from 1 (small) to 5 (top). Size is the revenue tier only. "
            "Separately, an account can be marked strategic when it matters beyond its tier (fast growth, reference customer, regulatory or partnership relationship, market entry); "
-           f"its tickets' impact is multiplied by {config['strategic_multiplier']:g} (sidebar). Churn risk and escalations are per-ticket and handled by severity. Edit either column if you disagree.")
+           f"its tickets' impact is multiplied by {config['strategic_multiplier']:g}" + (" (the default, adjustable in the sidebar)" if config['strategic_multiplier'] == DEFAULT_CONFIG['strategic_multiplier'] else f" (default {DEFAULT_CONFIG['strategic_multiplier']:g}, changed in the sidebar)") + ". Churn risk and escalations are per-ticket and handled by severity. Edit either column if you disagree.")
 acc_editor = st.data_editor(
     ss.accounts_df,
     key="account_editor",

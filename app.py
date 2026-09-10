@@ -507,8 +507,6 @@ with st.expander("Model instructions (editable before running)"):
         st.json(ai_pass.TOOL_SCHEMA["input_schema"], expanded=False)
 
 baseline = ai_pass.load_baseline(bl)
-cached = ai_pass.load_cache(bl, model, ss.system_prompt)
-cur_hash = ai_pass.prompt_hash(bl, model, ss.system_prompt)
 runs_left = MAX_RUNS_PER_SESSION - ss.ai_runs
 
 st.markdown("**The author's baseline** is the fixed analysis this submission was written against. It loads by default. "
@@ -516,16 +514,16 @@ st.markdown("**The author's baseline** is the fixed analysis this submission was
 st.info("**Expect a wait when you run an analysis.** A single run reads all the tickets in one call and typically takes 30 to 90 seconds. "
         "**Consensus of 3 runs** makes three such calls back to back and then reconciles them, so allow two to five minutes and leave the page open; "
         "the button greys out while it works and the results appear when all three are done.")
-b1, b2, b3, b4, b5 = st.columns([1.3, 1.1, 1.1, 1, 1.3])
+b1, b2, b3, b4 = st.columns([1.3, 1.1, 1.1, 1.5])
 load_baseline = b1.button("Load the author's baseline", type="primary", disabled=baseline is None)
 run_api = b2.button(f"Run your own analysis ({runs_left} calls left)", disabled=(not api_key) or runs_left <= 0)
 run_cons = b3.button("Consensus of 3 runs", disabled=(not api_key) or runs_left < 3,
                      help="Runs the analysis three times and keeps what at least two runs agree on: majority on categories, median on confidence, "
                           "clusters only where two runs put the tickets together, elimination links only where two runs propose them. Three times the cost, far less variance.")
-load_cached = b4.button("Load my last run", disabled=cached is None)
-b5.caption(f"Model: {model}, temperature 0" + ("  |  custom instructions" if ss.system_prompt != ai_pass.SYSTEM_PROMPT else ""))
+b4.caption(f"Model: {model}, temperature 0" + ("  |  custom instructions" if ss.system_prompt != ai_pass.SYSTEM_PROMPT else "")
+           + ". Your own run lives in this browser session only; it is not saved and never replaces the baseline.")
 if baseline is None:
-    st.caption("No baseline is committed for this file (cache/baseline.json). The author can create one by downloading an analysis below and committing it under that name.")
+    st.caption("No baseline is committed for this file (cache/baseline.json). Run an analysis to proceed; the author can commit a downloaded analysis as the baseline.")
 
 if load_baseline and baseline:
     load_proposal(baseline)
@@ -541,28 +539,18 @@ if run_api or run_cons:
             else:
                 blob = ai_pass.run_ai_pass(bl, api_key, model, ss.system_prompt)
                 ss.ai_runs += 1
-            ai_pass.save_cache(blob)
-            load_proposal(blob)
+            load_proposal(blob)          # session only: viewers' runs are never written to disk
             st.toast(f"Done. Tokens used: {blob['usage']}")
             st.rerun()
         except Exception as e:
             st.error(ai_pass.friendly_error(e))
-
-if load_cached and cached:
-    load_proposal(cached)
-    st.rerun()
 
 if ss.ai_blob is None and baseline is not None and not ss.get("baseline_declined"):
     load_proposal(baseline)
     st.rerun()
 
 if ss.ai_blob is None:
-    if cached is None:
-        st.info("No saved analysis for this file yet. Run the AI analysis to generate one.")
-    else:
-        st.caption(f"A saved analysis exists ({cached.get('source')}, {cached.get('generated_at')}). "
-                   + ("It matches the current file and instructions." if cached.get("prompt_hash") == cur_hash
-                      else "The file or instructions have changed since; consider running again."))
+    st.info("No analysis loaded for this file. Load the author's baseline if one exists, or run an analysis.")
     empty_sections(3, "Waiting for the AI analysis.")
     st.stop()
 
@@ -575,9 +563,9 @@ elif meta.get("source") == "baseline":
 else:
     cons = f" Consensus of {meta['consensus_of']} runs." if meta.get("consensus_of") else ""
     st.info(f"Your own run: {meta.get('model')} at {meta.get('generated_at')}.{cons} Numbers may differ from the author's baseline. Use 'Load the author's baseline' to return to it.")
-with st.expander("Download this analysis (for committing as a baseline)"):
-    st.caption("The author commits this file as cache/baseline.json in the repo. To include finalised review edits and settings as part of the baseline, "
-               "finalise in step 5 and use the download there instead; it bundles the analysis with the review.")
+with st.expander("Download this analysis (author only: for committing as the baseline)"):
+    st.caption("Runs are not saved on the server. If you are the author and want this run to become the baseline, download it here and commit it as cache/baseline.json. "
+               "To include finalised review edits and settings, finalise in step 5 and use the bundle download there instead.")
     st.download_button("Analysis JSON", json.dumps({k: v for k, v in meta.items() if k != "review"}, indent=2), "baseline.json", "application/json")
 
 acc_raw = meta["result"].get("accounts", [])

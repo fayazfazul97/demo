@@ -337,6 +337,11 @@ if meta.get("source") == "seed":
 else:
     st.caption(f"Analysis from {meta.get('model')} at {meta.get('generated_at')}.")
 
+acc_raw = meta["result"].get("accounts", [])
+if any("no entry that matched" in str(a.get("evidence", "")) for a in acc_raw):
+    st.warning("The model's account list did not line up with the account names in the file for at least one account. "
+               "Those accounts were given a default size of 3. Check step 3a, edit the sizes, or run the analysis again.")
+
 obs = meta["result"].get("cross_record_observations", [])
 if obs:
     with st.expander("Cross-ticket observations from the model", expanded=True):

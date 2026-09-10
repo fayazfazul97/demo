@@ -276,32 +276,65 @@ with st.expander("How the score works"):
 
 #### The complete formula
 
+Three steps: work out how much a ticket matters, turn that into a score, then handle the three kinds of ticket differently.
+
+**Step 1. How much does the ticket matter? (impact)**
+
 ```
-impact(ticket) = account_size × severity{" × strategic_multiplier   (only if the account is strategic)" if c["strategic_multiplier"] != 1 else ""}
-
-Reactive ticket, not in a cluster
-    score = impact(ticket) × confidence ÷ effort_points
-    cost  = effort_points
-
-Reactive ticket in a cluster (all members share one fix)
-    cluster_impact = sum of impact(member)   over members not handed off
-    score(member)  = cluster_impact × cluster_confidence ÷ cluster_effort_points
-    cost(member)   = cluster_effort_points ÷ number of members not handed off
-
-Proactive item (team initiative)
-    impact = (account_size[Internal] × severity)
-           + sum of impact(reactive ticket it eliminates){chr(10) + "    impact = impact × metric_bonus                (only if it names a company metric)" if c["metric_bonus"] != 1 else ""}
-    score  = impact × confidence ÷ effort_points
-    cost   = effort_points
+impact = account size × severity{" × " + format(c["strategic_multiplier"], "g") + " (strategic accounts only)" if c["strategic_multiplier"] != 1 else ""}
 ```
 
-Handed-off tickets are not scored and carry no cost. Tickets with unclear effort are not scored either; they go to "Investigate first" (cost {ep["unclear"]:g} point) or "Not this quarter".
+Account size is the revenue tier (1 to 5). Severity is how bad the problem is (low {sev["low"]:g}, medium {sev["medium"]:g}, high {sev["high"]:g}). {"Tickets from a strategic account are multiplied by " + format(c["strategic_multiplier"], "g") + "." if c["strategic_multiplier"] != 1 else ""}
 
-*Illustrative examples from the bundled sample data, with sizes top 5, mid 3, small 1 and severity high 3, medium 2, low 1:*
+**Step 2. Turn impact into a score**
 
-- *Reactive, alone.* A top account (5), high severity (3), confidence 0.7, small effort (1): score = 5 × 3 × 0.7 ÷ 1 = **10.5**.
-- *Reactive, clustered.* Two top-tier tickets, one high (5 × 3 = 15) and one medium (5 × 2 = 10), share one fix at confidence 0.75 and 1-2 sprints (3): cluster impact 25, score = 25 × 0.75 ÷ 3 = **6.25** for each ticket; each carries 1.5 of the 3 points.
-- *Proactive.* An internal initiative (3 × high 3 = 9) that would eliminate four reactive tickets worth 9 + 10 + 10 + 1 = 30, at confidence 0.7 and large effort (8): impact 39, score = 39 × 0.7 ÷ 8 = **3.41**. No metric bonus because its notes name no metric.
+```
+score = impact × confidence ÷ effort
+```
+
+Confidence (0 to 1) discounts what we are unsure about. Effort (in points) is what it costs. A ticket that matters a lot, is well understood and is cheap scores highest.
+
+**Step 3. Apply it to the three kinds of ticket**
+
+*A. A reactive ticket on its own*
+
+Uses its own impact, confidence and effort. Nothing shared.
+
+```
+score = impact × confidence ÷ effort
+cost  = effort
+```
+
+*Example (sample data):* top account (5) × high severity (3) = impact 15; confidence 0.7; effort small (1). Score 15 × 0.7 ÷ 1 = **10.5**, cost 1 point.
+
+*B. Reactive tickets that share one root cause (a cluster)*
+
+One fix closes all of them, so the impacts are added together, the effort is paid once, and every ticket in the cluster gets the same score. Each ticket carries an equal share of the cost. A ticket that has been handed off is left out of both.
+
+```
+cluster impact = impact of ticket 1 + impact of ticket 2 + ...
+score (each)   = cluster impact × cluster confidence ÷ cluster effort
+cost (each)    = cluster effort ÷ number of tickets in the cluster
+```
+
+*Example (sample data):* two top-account tickets, one high (15) and one medium (10), share a fix. Cluster impact 25; confidence 0.75; effort 1-2 sprints (3). Score 25 × 0.75 ÷ 3 = **6.25** for each ticket; each carries 1.5 of the 3 points.
+
+*C. A proactive item (team initiative)*
+
+It has an impact of its own, plus the impact of every reactive ticket it would eliminate for good. {"If its notes name a company metric, the total is multiplied by " + format(c["metric_bonus"], "g") + "." if c["metric_bonus"] != 1 else "The metric bonus is off (1.0), so naming a metric does not change the score."}
+
+```
+own impact  = {c["account_weight"].get("Internal", 3):g} (internal account size) × severity
+impact      = own impact + impact of each reactive ticket it eliminates{chr(10) + "impact      = impact × " + format(c["metric_bonus"], "g") + "   (only if it names a company metric)" if c["metric_bonus"] != 1 else ""}
+score       = impact × confidence ÷ effort
+cost        = effort
+```
+
+*Example (sample data):* an initiative with high severity (3 × 3 = 9) that would eliminate four reactive tickets worth 9 + 10 + 10 + 1 = 30. Impact 39; confidence 0.7; effort large (8). Score 39 × 0.7 ÷ 8 = **3.41**, cost 8 points.
+
+**What is not scored**
+
+Handed-off tickets (configuration, data cleanup, process work) are routed to another team and get neither a score nor a cost. Tickets with unclear effort are not estimated; they go to "Investigate first" ({ep["unclear"]:g} point) if they matter enough, otherwise to "Not this quarter".
 
 #### Breaking it down
 

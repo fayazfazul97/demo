@@ -6,7 +6,7 @@ The design principle: the AI model reads, a human decides, code does the arithme
 
 1. Ingest: reads the backlog CSV (handles the cp1252 encoding of the companion file).
 2. AI pass: one API call with the whole backlog. The model proposes root-cause clusters, severity, confidence, classification, what each proactive item would retire, and flags contradictions. It is instructed not to score. Output is schema-enforced via a forced tool call and cached to `cache/ai_pass.json`.
-3. Review: the prompt can be edited before the AI pass runs. The model's account weights, groups and ticket tags are all editable in tables. Other settings are in the sidebar. Results update live.
+3. Review: the prompt can be edited before the AI pass runs. The model's account sizes, clusters and ticket tags are all editable in tables. Other settings are in the sidebar. Results update live.
 4. Finalise: locks the tags, produces the scored CSV, a markdown summary, a diff log of every field the reviewer changed from the AI proposal, and the finalised tags + config as JSON.
 
 ## Run
@@ -50,9 +50,9 @@ Proactive items:
 
     score = (own impact + impact of the reactive tickets it retires) x metric_bonus x confidence / effort_points
 
-Piles, checked in order: Hand off (not engineering work) -> Investigate first (effort unclear, low confidence, enough impact) -> Do now (score >= funding line) -> Later (within the band below the line) -> Not this quarter. Do-now items spill to Later when committed points exceed quarter capacity.
+Categories, checked in order: Hand off (not engineering work) -> Investigate first (effort unclear, low confidence, enough impact) -> Do now (score >= priority threshold) -> Later (within the band below the line) -> Not this quarter. Do-now items spill to Later when committed points exceed quarter capacity.
 
-The split is the share of committed points (Do now + Investigate first) by classification. Handed-off work is excluded because it is not roadmap capacity.
+The split is the share of allocated effort points (Do now + Investigate first) by classification. Spare capacity is filled from Later (configurable) so the quarter is fully allocated. Handed-off work is excluded because it is not roadmap capacity.
 
 Every number in the formula lives in `DEFAULT_CONFIG` in `scoring.py` and is exposed in the sidebar.
 
@@ -68,6 +68,6 @@ Every number in the formula lives in `DEFAULT_CONFIG` in `scoring.py` and is exp
 ## Assumptions to state in the rationale
 
 - Account weights (1 to 5) are suggested by the model from size clues in the notes and edited by the reviewer in step 3a; GMV figures are not in the data.
-- Quarter capacity (30 points) assumes a five-person team, six two-week sprints, roughly five points per sprint after support load.
-- Effort hints map to points 1 / 3 / 8; "unclear" becomes a one-point discovery spike rather than a guess.
+- Quarter capacity (30 effort points, adjustable in the sidebar) assumes a five-person team, six two-week sprints, roughly five points per sprint after support load.
+- Effort hints map to effort points 1 / 3 / 8; "unclear" becomes a one-point investigation rather than a guess. Severity (1 / 2 / 3) is a multiplier on impact, not a unit of work.
 - Clusters are hypotheses about shared root causes. They are the highest-leverage judgement in the tool and the first thing support would need to verify.

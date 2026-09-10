@@ -28,7 +28,7 @@
   #toast { position: absolute; top: 8px; right: 12px; font-size: 12px; background: rgba(40,40,40,0.9); color: #eee; padding: 6px 10px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .node { cursor: pointer; }
   .node text { font-size: 13px; fill: var(--label); pointer-events: none; }
-  .cluster text { font-size: 14px; font-weight: 600; fill: var(--clabel); }
+  .cluster text { font-size: 13px; font-weight: 600; fill: #fff; }
   .link { stroke: var(--linkc); stroke-opacity: 0.7; stroke-width: 1.5px; cursor: pointer; }
   .link.retires { stroke: #e6a23c; stroke-dasharray: 4 3; }
   .link:hover { stroke: #ff5c5c; stroke-width: 3px; stroke-opacity: 1; }
@@ -171,18 +171,55 @@
     d3.select("#zout").on("click", () => svg.transition().duration(200).call(zoom.scaleBy, 1 / 1.3));
     d3.select("#zreset").on("click", fitToView);
 
-    // Layout: clusters repel strongly so each one sits in its own space with
-    // its members around it; unclustered tickets drift to the outside.
-    sim = d3.forceSimulation(state.nodes).alphaDecay(0.04).velocityDecay(0.5)
-      .force("link", d3.forceLink(state.links).id(d => d.id)
-        .distance(l => l.kind === "member" ? 80 : 150).strength(l => l.kind === "member" ? 0.9 : 0.15))
-      .force("charge", d3.forceManyBody().strength(n => n.type === "cluster" ? -2200 : -220).distanceMax(500))
-      .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? 70 : radius(n) + 16).strength(0.9))
-      .force("x", d3.forceX(n => (n.type === "ticket" && !n.clustered) ? width * 0.08 : width * 0.68).strength(n => (n.type === "ticket" && !n.clustered) ? 0.18 : 0.09))
-      .force("y", d3.forceY(height / 2).strength(0.06));
+    // Layout: hub and spoke. Clusters sit on a grid; each cluster's tickets
+    // sit on a ring around it; unclustered reactive tickets form a column on
+    // the left; proactive items form a row along the bottom. A collision
+    // force keeps nodes and labels from touching; nothing else pulls them.
+    assignTargets(width, height);
+    sim = d3.forceSimulation(state.nodes).alphaDecay(0.06).velocityDecay(0.5)
+      .force("x", d3.forceX(n => n.tx).strength(0.8))
+      .force("y", d3.forceY(n => n.ty).strength(0.8))
+      .force("collide", d3.forceCollide().radius(n => n.type === "cluster" ? pillWidth(n) / 2 + 8 : radius(n) + 16).strength(1).iterations(3));
     sim.on("end", fitToView);
     rebuild();
     if (selectedId && byId(selectedId)) showDetails(byId(selectedId)); else showDetails(null);
+  }
+
+  function assignTargets(width, height) {
+    const clusters = state.nodes.filter(n => n.type === "cluster");
+    const members = {};
+    state.links.forEach(l => { if (l.kind === "member") { const [t, c] = linkEnds(l); (members[c] = members[c] || []).push(t); } });
+    const clusteredIds = new Set([].concat(...Object.values(members)));
+    const proactive = state.nodes.filter(n => n.type === "ticket" && n.classification === "proactive");
+    const loose = state.nodes.filter(n => n.type === "ticket" && n.classification !== "proactive" && !clusteredIds.has(n.id))
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    const leftW = 120, bottomH = proactive.length ? 90 : 0, top = 30;
+    // left column: unclustered reactive tickets
+    const colH = height - top - bottomH - 20;
+    loose.forEach((n, i) => { n.tx = 60; n.ty = top + 20 + (loose.length > 1 ? i * (colH - 40) / (loose.length - 1) : colH / 2); });
+    // bottom row: proactive items
+    proactive.forEach((n, i) => { n.tx = leftW + 60 + i * ((width - leftW - 120) / Math.max(1, proactive.length - 1)); n.ty = height - 45; });
+    if (proactive.length === 1) proactive[0].tx = leftW + (width - leftW) / 2;
+    // grid: clusters with rings
+    const areaX = leftW + 40, areaW = width - areaX - 20, areaY = top, areaH = height - top - bottomH - 20;
+    const n = clusters.length || 1;
+    const cols = Math.max(1, Math.round(Math.sqrt(n * areaW / Math.max(1, areaH))));
+    const rows = Math.ceil(n / cols);
+    const cellW = areaW / cols, cellH = areaH / rows;
+    const ring = Math.max(78, Math.min(cellW, cellH) * 0.36);
+    clusters.forEach((c, i) => {
+      const cx = areaX + (i % cols + 0.5) * cellW, cy = areaY + (Math.floor(i / cols) + 0.5) * cellH;
+      c.tx = cx; c.ty = cy;
+      const ids = members[c.id] || [];
+      ids.forEach((tid, j) => {
+        const t = byId(tid); if (!t) return;
+        const ang = -Math.PI / 2 + j * 2 * Math.PI / ids.length;
+        t.tx = cx + ring * Math.cos(ang); t.ty = cy + ring * Math.sin(ang);
+      });
+    });
+    // anything left (e.g. member links to unknown ids) stays where it is
+    state.nodes.forEach(nd => { if (nd.tx == null) { nd.tx = nd.x || width / 2; nd.ty = nd.y || height / 2; } });
   }
 
   function fitToView() {
@@ -195,7 +232,18 @@
     svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
   }
 
+  function resolveLinks() {
+    state.links = state.links.filter(l => {
+      if (typeof l.source !== "object") l.source = byId(l.source);
+      if (typeof l.target !== "object") l.target = byId(l.target);
+      return l.source && l.target;
+    });
+  }
+
+  function pillWidth(n) { return Math.max(96, 8.2 * String(n.id).length + 20); }
+
   function rebuild() {
+    resolveLinks();
     gLinks = gLinks.data(state.links, l => linkEnds(l).join("|") + "|" + l.kind);
     gLinks.exit().remove();
     gLinks = gLinks.enter().append("line").attr("class", l => "link " + l.kind)
@@ -217,10 +265,10 @@
       .attr("stroke-width", 2);
     enter.filter(n => n.type === "ticket" && n.strategic).append("circle").attr("class", "strat").attr("r", n => radius(n) + 4);
     enter.filter(n => n.type === "cluster").append("rect")
-      .attr("width", 44).attr("height", 44).attr("x", -22).attr("y", -22).attr("rx", 8)
+      .attr("width", n => pillWidth(n)).attr("height", 34).attr("x", n => -pillWidth(n) / 2).attr("y", -17).attr("rx", 17)
       .attr("stroke", "#c7b8ff").attr("stroke-width", 1.5);
     enter.append("title").text(n => n.type === "cluster" ? (n.label || n.id) : `${n.id} · ${n.account || ""}\n${n.classification || ""} · ${n.bucket || ""} · score ${n.score != null ? n.score.toFixed(2) : ""}`);
-    enter.append("text").attr("dy", n => n.type === "cluster" ? 34 : radius(n) + 11).attr("text-anchor", "middle")
+    enter.append("text").attr("dy", n => n.type === "cluster" ? 5 : radius(n) + 13).attr("text-anchor", "middle")
       .text(n => n.type === "cluster" ? n.id : n.id.replace(/^TRQ-/, ""));
     enter.on("click", (ev, n) => { ev.stopPropagation(); showDetails(n); });
     gNodes = enter.merge(gNodes);
@@ -232,12 +280,14 @@
       .attr("fill", d => memberCount[d.id] ? "#8e7cc3" : "none")
       .attr("stroke-dasharray", d => memberCount[d.id] ? null : "5 3")
       .attr("stroke", d => memberCount[d.id] ? "#c7b8ff" : "#8e7cc3");
-    gNodes.filter(d => d.type === "cluster").select("text").text(d => memberCount[d.id] ? d.id : d.id + " (empty)");
+    gNodes.filter(d => d.type === "cluster").select("text").text(d => memberCount[d.id] ? d.id : d.id + " (empty)").attr("fill", d => memberCount[d.id] ? "#fff" : "var(--text)");
     gNodes.call(d3.drag().clickDistance(12).on("start", dragStart).on("drag", dragging).on("end", dragEnd));
 
+    const width = document.getElementById("graphbox").clientWidth || 800;
+    assignTargets(width, state.height);
     sim.nodes(state.nodes);
-    sim.force("link").links(state.links);
-    sim.alpha(0.6).restart();
+    sim.force("x").initialize(state.nodes); sim.force("y").initialize(state.nodes);
+    sim.alpha(0.8).restart();
     sim.on("tick", () => {
       gLinks.attr("x1", l => l.source.x).attr("y1", l => l.source.y).attr("x2", l => l.target.x).attr("y2", l => l.target.y);
       gNodes.attr("transform", n => { positions[n.id] = { x: n.x, y: n.y }; return `translate(${n.x},${n.y})`; });
@@ -274,7 +324,7 @@
   function dragEnd(ev, n) {
     if (!ev.active) sim.alphaTarget(0);
     state.nodes.forEach(o => { o.fx = null; o.fy = null; });
-    n.fx = n.x; n.fy = n.y; setTimeout(() => { n.fx = null; n.fy = null; }, 800);
+    n.fx = null; n.fy = null;
     gNodes.selectAll("circle,rect").classed("drop-target", false);
     if (state.locked || !hover) return;
     const o = hover; hover = null;

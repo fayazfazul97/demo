@@ -70,7 +70,7 @@ cross_record_observations
 - Patterns visible only by reading across tickets: the same bug reported as opposite symptoms, the same symptom at more than one account, stated urgency that contradicts measured impact, items that have sat unowned, and which proactive items map onto which reactive patterns. Be concrete and cite request_ids.
 
 accounts
-- You have no prior knowledge of these accounts. Derive each account's tier ONLY from what the summaries and raw_notes in this backlog say (phrases like "top-5 by GMV", "enterprise tier", "mid-market", "small regional, low GMV"). Return one entry per distinct source_account with a tier of "top", "enterprise", "mid", "small", "internal", or "unknown", and quote the evidence. Use "unknown" when the notes give no tier signal; do not guess from the account name. Treat "Internal" (or any source that is the product team itself) as "internal".
+- You have no prior knowledge of these accounts. Derive each account's tier ONLY from what the summaries and raw_notes in this backlog say (phrases like "top-5 by GMV", "enterprise tier", "mid-market", "small regional, low GMV"). Return one entry per distinct source_account, copying source_account exactly as it appears in the data (same spelling, spacing and capitalisation, no abbreviation), with a tier of "top", "enterprise", "mid", "small", "internal", or "unknown", and quote the evidence. Use "unknown" when the notes give no tier signal; do not guess from the account name. Treat "Internal" (or any source that is the product team itself) as "internal".
 - Also suggest a weight from 1 to 5 for how much that account should count when ranking work. Guide: 5 for top or enterprise accounts, 3 for mid-market, 1 for small, 3 for internal and for unknown. If the notes give a reason to move off the guide (for example a mid-size account flagged as a churn risk, or a small account with unusual reputational exposure), move, and say why in weight_reason. Do not describe a possible move without making it.
 
 Be specific and terse in every reason. Cite request_ids when you link tickets."""
@@ -205,12 +205,42 @@ def validate_payload(payload: dict, df: pd.DataFrame) -> dict:
     extra = [i for i in got if i not in ids]
     if missing or extra:
         raise ValueError(f"AI pass ticket mismatch. missing={missing} extra={extra}")
-    # Every account in the data gets a tier entry; unknown if the model skipped it.
-    seen = {a["source_account"] for a in payload.get("accounts", [])}
-    for acct in sorted(set(df["source_account"])):
-        if acct not in seen:
-            payload.setdefault("accounts", []).append({"source_account": acct, "tier": "unknown", "evidence": "not returned by model",
-                                                       "suggested_weight": 3, "weight_reason": "default for unknown"})
+    # Every account in the data gets a tier entry. Match the model's names to
+    # the file's names tolerantly (case, whitespace, punctuation, partial
+    # names), rewrite them to the canonical spelling, and make any mismatch
+    # visible rather than silently defaulting to "unknown".
+    def norm(x: str) -> str:
+        return "".join(ch for ch in str(x).casefold() if ch.isalnum())
+
+    canonical = sorted(set(df["source_account"]))
+    by_norm = {norm(c): c for c in canonical}
+    returned = payload.get("accounts", []) or []
+    matched: dict[str, dict] = {}
+    unmatched: list[str] = []
+    for a in returned:
+        raw = str(a.get("source_account", ""))
+        n = norm(raw)
+        hit = by_norm.get(n)
+        if hit is None:
+            # partial match: model wrote "Meridian" for "Meridian Foods", or vice versa
+            cands = [c for c in canonical if n and (n in norm(c) or norm(c) in n)]
+            hit = cands[0] if len(cands) == 1 else None
+        if hit is None:
+            unmatched.append(raw)
+            continue
+        a["source_account"] = hit
+        matched.setdefault(hit, a)
+    accounts = []
+    for acct in canonical:
+        if acct in matched:
+            accounts.append(matched[acct])
+        else:
+            note = "the model returned no entry that matched this account"
+            if unmatched:
+                note += f"; unmatched names it did return: {', '.join(unmatched)}"
+            accounts.append({"source_account": acct, "tier": "internal" if acct.strip().casefold() == "internal" else "unknown",
+                             "evidence": note, "suggested_weight": 3, "weight_reason": "default (no matching entry)"})
+    payload["accounts"] = accounts
     for a in payload["accounts"]:
         a.setdefault("suggested_weight", {"top": 5, "enterprise": 5, "mid": 3, "small": 1}.get(a.get("tier"), 3))
         a.setdefault("weight_reason", f"guide value for tier '{a.get('tier')}'")

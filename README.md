@@ -25,7 +25,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 python ai_pass.py data/Inbound_Requests.csv      # CLI, writes cache/ai_pass.json
 ```
 
-or paste the key into the sidebar and click "Run AI pass via API". The model defaults to `claude-sonnet-4-6`; override with `BET_SCORER_MODEL`.
+or paste the key into the sidebar and click "Run AI pass via API". The model defaults to `claude-sonnet-4-6`; override with `BET_SCORER_MODEL`. The output token limit defaults to 20000; override with `BET_SCORER_MAX_TOKENS` if a large backlog gets cut off.
 
 Note: the `cache/ai_pass.json` in this repo is a seed drafted offline from the same prompt definitions (`source: seed`), not a live model run. The app warns when it is loaded. Re-run the AI pass before submitting so the cache is a real model output.
 

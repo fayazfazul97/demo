@@ -14,42 +14,54 @@
         "tier": "top",
         "evidence": "'top-5 account by GMV' (TRQ-1042, TRQ-1054, TRQ-1066)",
         "suggested_weight": 5,
-        "weight_reason": "Top-5 by GMV; guide value for top."
+        "weight_reason": "Top-5 by GMV; guide value for top.",
+        "strategic": false,
+        "strategic_reason": ""
       },
       {
         "source_account": "Palisade Resorts Group",
         "tier": "enterprise",
         "evidence": "'enterprise tier, high visibility' (TRQ-1046), 'Enterprise tier' (TRQ-1052)",
         "suggested_weight": 5,
-        "weight_reason": "Enterprise tier with exec visibility; guide value."
+        "weight_reason": "Enterprise tier with exec visibility; guide value.",
+        "strategic": false,
+        "strategic_reason": ""
       },
       {
         "source_account": "Northwind Distributors",
         "tier": "mid",
         "evidence": "'mid-market, moderate GMV but high complaint volume' (TRQ-1043)",
         "suggested_weight": 3,
-        "weight_reason": "Mid-market; guide value. High complaint volume noted but that is severity, not size."
+        "weight_reason": "Mid-market tier per 'mid-market, moderate GMV' (TRQ-1043). High complaint volume is not a size factor.",
+        "strategic": false,
+        "strategic_reason": ""
       },
       {
         "source_account": "Cobalt Hospitality",
         "tier": "mid",
         "evidence": "'mid-size but growing fast' (TRQ-1044), 'Cobalt tier: mid-size' (TRQ-1050)",
-        "suggested_weight": 4,
-        "weight_reason": "Mid-size (guide 3), moved to 4: CS flagged a churn risk (TRQ-1044) and the account is growing fast."
+        "suggested_weight": 3,
+        "weight_reason": "Mid-market tier per 'mid-size but growing fast' (TRQ-1044); size is the tier only. The CS churn-risk flag is applied through severity on TRQ-1044, not here.",
+        "strategic": true,
+        "strategic_reason": "'mid-size but growing fast' (TRQ-1044): growth likely to outstrip the mid-market tier."
       },
       {
         "source_account": "Oakmere Culinary Supply",
         "tier": "small",
         "evidence": "'small regional account, low GMV' (TRQ-1047)",
         "suggested_weight": 1,
-        "weight_reason": "Small regional, low GMV; guide value."
+        "weight_reason": "Small regional, low GMV; guide value.",
+        "strategic": false,
+        "strategic_reason": ""
       },
       {
         "source_account": "Internal",
         "tier": "internal",
         "evidence": "source_account is Internal; all are proactive proposals",
         "suggested_weight": 3,
-        "weight_reason": "Product team proposals; guide value."
+        "weight_reason": "Product team proposals; guide value.",
+        "strategic": false,
+        "strategic_reason": ""
       }
     ],
     "clusters": [
